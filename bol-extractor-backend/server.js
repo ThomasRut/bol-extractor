@@ -20,6 +20,74 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+// ============== ZIP CODE TO ZONE LOOKUP TABLE ==============
+const ZIP_TO_ZONE = {
+  "30002": "C", "30003": "E", "30004": "F", "30005": "F", "30006": "D", "30007": "D", "30008": "C",
+  "30009": "E", "30010": "E", "30011": "H", "30012": "E", "30013": "E", "30014": "G", "30015": "F",
+  "30016": "F", "30017": "F", "30018": "G", "30019": "G", "30021": "C", "30022": "E", "30023": "E",
+  "30024": "F", "30025": "H", "30026": "E", "30028": "H", "30029": "E", "30030": "C", "30031": "C",
+  "30032": "C", "30033": "C", "30034": "C", "30035": "C", "30036": "C", "30037": "C", "30038": "D",
+  "30039": "E", "30040": "G", "30041": "H", "30042": "F", "30043": "F", "30044": "E", "30045": "F",
+  "30046": "F", "30047": "E", "30048": "E", "30049": "F", "30052": "F", "30054": "F", "30055": "H",
+  "30056": "I", "30058": "D", "30060": "D", "30061": "D", "30062": "D", "30063": "D", "30064": "D",
+  "30065": "D", "30066": "E", "30067": "D", "30068": "D", "30069": "C", "30070": "F", "30071": "E",
+  "30072": "C", "30074": "D", "30075": "E", "30076": "E", "30077": "E", "30078": "E", "30079": "C",
+  "30080": "C", "30081": "C", "30082": "C", "30083": "C", "30084": "D", "30085": "D", "30086": "D",
+  "30087": "D", "30088": "C", "30090": "D", "30091": "D", "30092": "E", "30093": "D", "30094": "D",
+  "30095": "E", "30096": "E", "30097": "F", "30098": "E", "30099": "E", "30101": "E", "30102": "F",
+  "30103": "J", "30104": "H", "30105": "L", "30106": "C", "30107": "H", "30108": "H", "30109": "G",
+  "30110": "G", "30111": "C", "30112": "F", "30113": "H", "30114": "G", "30115": "G", "30116": "F",
+  "30117": "G", "30118": "G", "30119": "F", "30120": "H", "30121": "G", "30122": "B", "30123": "H",
+  "30124": "J", "30125": "I", "30126": "B", "30127": "D", "30129": "K", "30132": "F", "30133": "C",
+  "30134": "D", "30135": "C", "30137": "G", "30138": "J", "30139": "J", "30140": "H", "30141": "D",
+  "30142": "F", "30143": "J", "30144": "E", "30145": "I", "30146": "F", "30147": "J", "30148": "J",
+  "30149": "J", "30150": "G", "30151": "I", "30152": "E", "30153": "G", "30154": "C", "30156": "E",
+  "30157": "E", "30160": "E", "30161": "J", "30162": "J", "30163": "G", "30164": "J", "30165": "K",
+  "30168": "B", "30169": "F", "30170": "H", "30171": "I", "30172": "J", "30173": "I", "30175": "K",
+  "30176": "H", "30177": "I", "30178": "G", "30179": "F", "30180": "E", "30182": "H", "30183": "H",
+  "30184": "H", "30185": "E", "30187": "D", "30188": "F", "30189": "F", "30204": "H", "30205": "E",
+  "30206": "G", "30212": "E", "30213": "B", "30214": "C", "30215": "D", "30216": "H", "30217": "H",
+  "30218": "G", "30219": "F", "30220": "G", "30222": "H", "30223": "E", "30224": "F", "30228": "D",
+  "30229": "F", "30230": "H", "30233": "G", "30234": "F", "30236": "C", "30237": "C", "30238": "C",
+  "30240": "J", "30241": "I", "30248": "F", "30250": "D", "30251": "G", "30252": "E", "30253": "D",
+  "30256": "H", "30257": "G", "30258": "H", "30259": "F", "30260": "B", "30261": "I", "30263": "F",
+  "30264": "E", "30265": "D", "30266": "G", "30268": "C", "30269": "D", "30270": "D", "30271": "E",
+  "30272": "A", "30273": "C", "30274": "B", "30275": "E", "30276": "E", "30277": "D", "30281": "C",
+  "30284": "E", "30285": "I", "30286": "J", "30287": "B", "30288": "B", "30289": "E", "30290": "C",
+  "30291": "B", "30292": "F", "30293": "H", "30294": "C", "30295": "G", "30296": "B", "30297": "B",
+  "30298": "B", "30301": "B", "30302": "B", "30303": "B", "30304": "B", "30305": "C", "30306": "B",
+  "30307": "B", "30308": "B", "30309": "B", "30310": "A", "30311": "A", "30312": "B", "30313": "B",
+  "30314": "B", "30315": "A", "30316": "B", "30317": "B", "30318": "B", "30319": "C", "30320": "A",
+  "30321": "A", "30322": "B", "30324": "C", "30325": "B", "30326": "C", "30327": "C", "30328": "D",
+  "30329": "C", "30331": "B", "30332": "B", "30333": "B", "30334": "B", "30336": "B", "30337": "A",
+  "30338": "D", "30339": "C", "30340": "D", "30341": "D", "30342": "C", "30343": "B", "30344": "A",
+  "30345": "C", "30346": "D", "30348": "B", "30349": "A", "30350": "D", "30353": "B", "30354": "A",
+  "30355": "B", "30356": "D", "30357": "B", "30358": "B", "30359": "C", "30360": "D", "30361": "B",
+  "30362": "D", "30363": "B", "30364": "B", "30366": "C", "30368": "B", "30369": "B", "30370": "B",
+  "30371": "B", "30374": "B", "30375": "B", "30377": "B", "30378": "B", "30380": "B", "30384": "B",
+  "30385": "B", "30388": "B", "30392": "B", "30394": "B", "30396": "B", "30398": "B", "30501": "J",
+  "30502": "I", "30503": "J", "30504": "I", "30506": "J", "30507": "J", "30515": "G", "30517": "I",
+  "30518": "G", "30519": "H", "30527": "L", "30529": "L", "30533": "L", "30534": "J", "30536": "L",
+  "30539": "L", "30540": "L", "30542": "H", "30543": "K", "30548": "I", "30549": "J", "30554": "L",
+  "30558": "L", "30564": "K", "30565": "L", "30566": "I", "30567": "J", "30575": "J", "30597": "K",
+  "30599": "L", "30601": "L", "30602": "K", "30603": "K", "30604": "K", "30605": "L", "30606": "K",
+  "30607": "K", "30608": "K", "30609": "K", "30612": "K", "30620": "H", "30621": "J", "30622": "J",
+  "30623": "J", "30625": "K", "30638": "K", "30641": "I", "30645": "J", "30650": "J", "30655": "H",
+  "30656": "H", "30663": "I", "30666": "J", "30677": "K", "30680": "I", "30701": "K", "30703": "K",
+  "30732": "K", "30733": "K", "30734": "K", "30735": "L", "30746": "L", "31004": "K", "31016": "K",
+  "31024": "L", "31026": "L", "31029": "J", "31032": "L", "31038": "K", "31046": "J", "31052": "L",
+  "31064": "I", "31066": "L", "31078": "L", "31085": "I", "31086": "J", "31097": "J", "31106": "B",
+  "31107": "B", "31119": "B", "31126": "B", "31131": "B", "31136": "B", "31139": "B", "31141": "B",
+  "31145": "B", "31146": "B", "31150": "B", "31156": "B", "31169": "D", "31192": "B", "31193": "B",
+  "31195": "B", "31196": "B", "31210": "L", "31220": "L", "31816": "J", "31822": "K", "31823": "K",
+  "31826": "K", "31827": "L", "31830": "J", "31831": "L", "31833": "L", "31836": "K", "36261": "J",
+  "36262": "J", "36263": "I", "36264": "K", "36269": "I", "36273": "I", "36274": "K", "36275": "K",
+  "36278": "K", "36280": "J", "36855": "L", "36863": "L", "39901": "B"
+};
+
+const VALID_ZONES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
+// ============================================================
+
 console.log('🔑 API Key status:', process.env.ANTHROPIC_API_KEY ? 'Loaded ✓' : 'Missing ✗');
 
 // Health check endpoint
@@ -87,104 +155,124 @@ async function processPage(pageBase64, pageNumber) {
 - Single-page or multi-page BOLs (may have suffixes like 1A, 1B)
 - Various carrier formats (different field names and locations)
 
-**YOUR TASK:** Extract 12 specific data points from any BOL format.
+**YOUR TASK:** Extract 13 specific data points from any BOL format.
 
 ═══════════════════════════════════════════════════════════════
 
-**FIELD 1: PRO NUMBER (Job/Tracking Number)**
+**FIELD 1: PRO NUMBER / JOB NUMBER**
 WHAT TO LOOK FOR:
-- Labels: "PRO#", "PRO NUMBER", "Bill of Lading Number", "Delivery Receipt", "Job#", tracking number
+- Labels: "PRO#", "PRO Number", "Job #", "Delivery Receipt", tracking number
 - Location: Usually in header or top-right corner
-- Format: May include suffixes (12345-1A, 12345-1B) for multi-page BOLs
-- Variations: Sometimes just numbers, sometimes alphanumeric
+- Format: May include letters, numbers, suffixes (e.g., "WEBATL182035", "1A", "1B")
+
+CRITICAL RULES:
+- Include ALL suffixes (1A, 1B, etc.) - these indicate multi-page BOLs
+- Return the FULL identifier exactly as shown
+- If multiple numbers exist, prefer the one labeled "PRO" or "Delivery Receipt"
 
 EXTRACTION RULE:
-- Extract the COMPLETE number including any suffix
-- If you see "1A", "1B", "1C" etc., include it
-- Examples: "1003211675", "53880973LN", "WEBATL180948"
+- Return the complete PRO/Job number as a string
+- Return "" (empty string) if not found
 
 ═══════════════════════════════════════════════════════════════
 
-**FIELD 2: DELIVERY ZONE (Single Letter A-L)**
-⚠️ CRITICAL: This is the DELIVERY/CONSIGNEE zone, NOT pickup/shipper zone
+**FIELD 2: ZONE (DELIVERY ZONE)**
+⚠️ CRITICAL: This must be the DELIVERY/CONSIGNEE zone, NOT pickup/shipper zone
 
 WHAT TO LOOK FOR:
-- In "Deliver To:", "Consignee:", "Ship To:" section (usually RIGHT side or bottom)
-- Labels: "Zone:", "APC:", "Delivery Zone"
-- Format: Single uppercase letter A through L
-- Common locations: Next to delivery city/state, in delivery address block
+- Labels: "Zone:", "Zone", "APC:" (in delivery section)
+- Location: Near delivery address, in consignee section, or in delivery APC field
+- Format: Single letter A through L
 
-DO NOT USE:
-- Pickup zone, shipper zone, origin zone (wrong zone!)
-- If you see two zones, use the DELIVERY zone
+COMMON MISTAKES TO AVOID:
+- DO NOT use pickup/shipper zone
+- DO NOT use origin APC zone
+- ONLY use zone from "Deliver To:" or "Consignee" section
 
 EXTRACTION RULE:
-- Return single uppercase letter: "A", "B", "C"... through "L"
-- If zone field is blank but you see delivery address, leave zone empty
-- Never guess - only return zone if explicitly stated
+- Return single uppercase letter A-L
+- Return "" (empty string) if zone not found (we will determine from ZIP code)
 
 ═══════════════════════════════════════════════════════════════
 
-**FIELD 3: ACTUAL WEIGHT (pounds)**
+**FIELD 2B: DELIVERY ZIP CODE** 
+⚠️ NEW FIELD - Used as fallback when zone is not explicitly shown
+
 WHAT TO LOOK FOR:
-- Labels: "Weight", "Wt", "LBS", "Pounds", "Weight-lbs", "GRAND TOTAL"
-- Locations: 
-  - Commodity description section (per line item)
-  - Grand total row at bottom
-  - Totals section
-- May be split across multiple line items
+- The ZIP code from the DELIVERY/CONSIGNEE address (NOT pickup/shipper)
+- Location: In "Deliver To:", "Consignee:", or delivery address section
+- Format: 5-digit ZIP code
+
+CRITICAL RULES:
+- MUST be from delivery address, NOT pickup address
+- Extract only the 5-digit ZIP code
+- This is crucial for zone determination when zone field is missing
 
 EXTRACTION RULE:
-- If multiple line items, SUM all weights
-- Return total weight as number (no units)
-- If weight is "3687.93", return 3687.93
-- If no weight found, return 0
+- Return 5-digit ZIP code as string
+- Return "" (empty string) if not found
 
 ═══════════════════════════════════════════════════════════════
 
-**FIELD 4: VOLUME (cubic feet)**
+**FIELD 3: DELIVERY ADDRESS (FULL)**
 WHAT TO LOOK FOR:
-- Labels: "Volume", "ft3", "ft³", "cu ft", "cubic feet", "Volume-ft3"
-- Location: Usually in measurements section with dimensions
-- Format: Decimal number
+- The complete delivery/consignee address including street, city, state, ZIP
+- Location: "Deliver To:", "Consignee:", delivery section
+- Used for multi-page BOL consolidation
 
 EXTRACTION RULE:
-- Return volume in cubic feet as number
-- If "25.56 ft3", return 25.56
-- If no volume found, return 0
+- Return full address as single string
+- Return "" if not found
 
 ═══════════════════════════════════════════════════════════════
 
-**FIELD 5: LIFTGATE SERVICE**
-⚠️ CHECK EVERYWHERE - this can be printed OR handwritten
-
+**FIELD 4: WEIGHT**
 WHAT TO LOOK FOR:
-- Printed text: "Liftgate", "Lift Gate", "Tailgate", checkboxes
-- Handwritten: Circled text, written notes saying "LIFTGATE", "LG"
-- Location: Anywhere on document - service sections, additional info, margins, bottom
+- Labels: "Weight-lbs", "Weight", "Total Weight", "TOTALS" row
+- Location: Usually in item details table or totals section
+- Format: Number in pounds (lbs)
 
-COMMON INDICATORS:
-- Checkbox marked for liftgate
-- Handwritten "LIFTGATE" (even if circled or emphasized)
-- Service codes or abbreviations
+CRITICAL RULES:
+- Use ACTUAL weight (not dimensional/volumetric weight)
+- If multiple pieces, use the TOTAL weight
+- Look in both item rows AND totals row
 
 EXTRACTION RULE:
-- Return "Yes" if you see ANY indication of liftgate
-- Return "" (empty string) if no indication
-- When in doubt (text is circled or emphasized), return "Yes"
+- Return numeric value only (no units)
+- Return 0 if not found
 
 ═══════════════════════════════════════════════════════════════
 
-**FIELD 6: INSIDE DELIVERY**
-⚠️ CRITICAL: Check BOTH printed AND handwritten areas
-
+**FIELD 5: VOLUME**
 WHAT TO LOOK FOR:
-- Printed: "Inside Delivery", "Inside", "Threshold", "Room of Choice"
-- Handwritten: Look in "Additional Information", margins, bottom notes
-- Common phrases: "inside", "I care", "inside delivery required"
-- Location: Service sections, special instructions, delivery notes
+- Labels: "Volume-ft3", "Volume", "Cu Ft", "CF"
+- Location: Item details table or totals section
+- Format: Cubic feet (ft³)
 
-WHERE TO CHECK:
+EXTRACTION RULE:
+- Return numeric value only (no units)
+- Return 0 if not found
+
+═══════════════════════════════════════════════════════════════
+
+**FIELD 6: LIFTGATE**
+WHAT TO LOOK FOR:
+- Explicit indicators: "Liftgate", "Lift Gate", "LIFTGATE" (checkbox or text)
+- Location: Services section, special services, or handwritten notes
+- May be circled or written in margins
+
+⚠️ IMPORTANT: Even handwritten "LIFTGATE" counts
+
+EXTRACTION RULE:
+- Return "Yes" if liftgate service is indicated anywhere
+- Return "" (empty string) if not present
+
+═══════════════════════════════════════════════════════════════
+
+**FIELD 7: INSIDE DELIVERY**
+⚠️ CRITICAL: Check BOTH printed sections AND handwritten notes
+
+WHAT TO LOOK FOR IN 5 LOCATIONS:
 1. Printed service checkboxes
 2. "Additional Information" section (often has handwritten notes)
 3. "Special Instructions" field
@@ -198,7 +286,7 @@ EXTRACTION RULE:
 
 ═══════════════════════════════════════════════════════════════
 
-**FIELD 7: RESIDENTIAL DELIVERY**
+**FIELD 8: RESIDENTIAL DELIVERY**
 WHAT TO LOOK FOR:
 - Explicit indicators: "Residential", "Res", "RSDL", residential checkbox
 - Location: Service sections, delivery type fields
@@ -213,7 +301,7 @@ EXTRACTION RULE:
 
 ═══════════════════════════════════════════════════════════════
 
-**FIELD 8: OVER LENGTH (dimensional charges)**
+**FIELD 9: OVER LENGTH (dimensional charges)**
 ⚠️ MUST BE IN INCHES, NOT FEET
 
 WHAT TO LOOK FOR:
@@ -225,69 +313,57 @@ CALCULATION STEPS:
 1. Find all dimensions (length, width, height)
 2. Convert feet to inches if needed (1 foot = 12 inches)
 3. Identify the LONGEST dimension
-4. Return range ONLY if longest ≥ 97 inches
+4. Classify based on the ranges below
 
-RETURN VALUES:
-- Longest dimension 97-144 inches → "97-144"
-- Longest dimension 145-192 inches → "145-192"  
-- Longest dimension 193-240 inches → "193-240"
-- Longest dimension 241+ inches → "241 or more"
-- Longest dimension under 97 inches → "" (empty string)
-- No dimensions found → "" (empty string)
+CLASSIFICATION (based on longest dimension in inches):
+- 97-144 inches → "97-144"
+- 145-192 inches → "193-240"
+- 193-240 inches → "193-240"
+- 241+ inches → "241 or more"
+- Under 97 inches → "" (empty string, no charge)
 
-EXAMPLES:
-- Dimensions: 48" × 40" × 23" → Longest is 48" → Return ""
-- Dimensions: 72" × 40" × 14" → Longest is 72" → Return ""
-- Dimensions: 120" × 48" × 60" → Longest is 120" → Return "97-144"
+EXTRACTION RULE:
+- Return one of: "97-144", "145-192", "193-240", "241 or more", or ""
+- Return "" if under 97 inches OR dimensions not found
 
 ═══════════════════════════════════════════════════════════════
 
-**FIELD 9: PALLET COUNT**
+**FIELD 10: PALLET COUNT**
 WHAT TO LOOK FOR:
-- Labels: "Pieces", "# PKGS", "Pallet", "Skids", "QTY", quantity
-- Location: Item description section, pieces column
-- Format: Whole number
+- Labels: "Pieces", "Pallets", "Pallet", "Skid", item count
+- Location: Item details section
+- May be in "Type" or "Description" column
 
 EXTRACTION RULE:
-- Count total number of pallets/skids/pieces
-- If multiple line items, sum them
-- Return as number
-- If none found, return 0
+- Return numeric count
+- Return 0 if not found
 
 ═══════════════════════════════════════════════════════════════
 
-**FIELD 10: DEBRIS REMOVAL SECTION**
+**FIELD 11: DEBRIS REMOVAL SECTION**
 WHAT TO LOOK FOR:
-- Explicit "Debris Removal" checkbox or field on the BOL form itself
-- This is about the BOL having a debris section, not handwritten notes
+- Checkbox or section labeled "Debris Removal"
+- Any indication that debris removal service is available/requested
+- This is different from Lakeshore client check
 
 EXTRACTION RULE:
-- Return true if BOL form has a "Debris Removal" field/checkbox
-- Return false if no such section exists on the form
-- This is about form structure, not service requests
+- Return true if debris section/checkbox exists
+- Return false if not present
 
 ═══════════════════════════════════════════════════════════════
 
-**FIELD 11: LAKESHORE CLIENT**
+**FIELD 12: LAKESHORE CLIENT**
 WHAT TO LOOK FOR:
-- Customer name, shipper name, consignee name
-- Location: "Customer:", "Shipper:", "Consignee:", company fields
+- Client name, shipper name, or customer name
+- Check if name contains "Lakeshore" anywhere
 
 EXTRACTION RULE:
-- Return true if company name contains "Lakeshore" (any case)
+- Return true if "Lakeshore" appears in client/shipper name
 - Return false otherwise
-- Check all company name fields
 
 ═══════════════════════════════════════════════════════════════
 
-**FIELD 12: TIME-SPECIFIC DELIVERY**
-⚠️ ALWAYS BASE DECISION ON ACTUAL TIME WINDOW, NOT JUST "TS" NOTES
-
-WHAT TO LOOK FOR:
-- Printed time fields: "Req Del From:", "Delivery Window:", "Appointment Delivery", "PU Ready From:", "To:"
-- Time ranges showing specific delivery windows
-- Handwritten "T.S" or "TS" notes (but verify against actual times!)
-
+**FIELD 13: TIME-SPECIFIC DELIVERY**
 ⚠️ CRITICAL RULE: The TIME WINDOW determines the charge, NOT handwritten notes
 - Even if someone wrote "TS" or "TIME SPECIFIC", you must check the actual times
 - If times don't match any category below, return "" even if "TS" is written
@@ -340,54 +416,38 @@ CALCULATION RULES (based on ACTUAL time window shown):
 4. Document shows "TS" written but no time window visible
    → Can't verify → Return "" ✗
 
-5. Document shows "Req Del From: Jan 07 26 14:00 To: Jan 07 28 17:00"
-   → This is a DATE range (2 days), not a time window → Return "" ✗
+5. Document shows "Req Del From: 7:00 AM To: 11:00 AM"
+   → Check times: 4 hours AND ends before noon → Return "AM Special" ✓
 
 EXTRACTION RULE:
-- ALWAYS calculate from actual time window first
-- Ignore "TS" notes if times don't match the three categories
-- Return "" (empty string) if no qualifying time window exists
-- Be precise: "AM Special" has TWO requirements (≤4 hours AND ends by noon)
+- Return one of: "AM Special", "2 Hours", "15 Minutes", or ""
+- Base decision on ACTUAL time window, not "TS" notes
+- Return "" if no qualifying time window found
 
 ═══════════════════════════════════════════════════════════════
 
-**FIELD 13: DETENTION TIME**
+**FIELD 14: DETENTION**
 WHAT TO LOOK FOR:
-- Notes about driver waiting, delays, detention
-- Location: Handwritten notes, additional info, bottom of document
-- Format: Time duration (minutes or hours)
+- Handwritten notes about wait time, delay, detention
+- Format: Usually in minutes or hours
+- Location: Margins, additional info section, driver notes
 
 EXTRACTION RULE:
-- Convert to total minutes
-- "1 hour" → 60
-- "30 minutes" → 30
-- No detention → 0
-
-═══════════════════════════════════════════════════════════════
-
-**FIELD 14: DELIVERY ADDRESS**
-⚠️ USED FOR GROUPING MULTI-PAGE BOLs
-
-WHAT TO LOOK FOR:
-- Full delivery address from "Deliver To:" or "Consignee:" section
-- Include: street, city, state, ZIP
-
-EXTRACTION RULE:
-- Return complete formatted address
-- Format: "Street, City, State ZIP"
-- Example: "4383 ROSWELL ROAD, ATLANTA, GA 30342"
-- This helps group pages 1A, 1B, 1C together
+- Return number of MINUTES (convert hours to minutes if needed)
+- Return 0 if not found
 
 ═══════════════════════════════════════════════════════════════
 
 **OUTPUT FORMAT:**
-Return ONLY valid JSON (no markdown, no backticks, no explanation):
+Return ONLY a valid JSON object with these exact keys (no markdown, no explanations):
 
 {
   "pro": "string",
-  "zone": "string (A-L)",
+  "zone": "A-L or empty string",
+  "deliveryZip": "5-digit ZIP code",
+  "deliveryAddress": "full delivery address string",
   "weight": number,
-  "volume": number,
+  "volumeFt3": number,
   "liftgate": "Yes" or "",
   "inside": "Yes" or "",
   "residential": "Yes" or "",
@@ -396,11 +456,10 @@ Return ONLY valid JSON (no markdown, no backticks, no explanation):
   "hasDebrisSection": boolean,
   "isLakeshore": boolean,
   "timeSpecific": "AM Special" or "2 Hours" or "15 Minutes" or "",
-  "detention": number,
-  "deliveryAddress": "string"
+  "detention": number
 }
 
-**EXTRACTION STRATEGY:**
+**EXTRACTION PROCESS:**
 1. Scan the ENTIRE document first
 2. Identify the format (traditional BOL vs delivery receipt vs other)
 3. Locate each field using the labels and locations described above
@@ -412,6 +471,7 @@ Return ONLY valid JSON (no markdown, no backticks, no explanation):
 - Different BOL formats use different field names for the same data
 - Handwritten annotations can appear anywhere
 - Zone is ALWAYS the delivery zone
+- Delivery ZIP is ALWAYS from delivery address (fallback for zone determination)
 - Over length must be ≥97 inches to count
 - Time-specific is determined by ACTUAL time windows, not "TS" notes
 - Check both printed and handwritten areas for services`
@@ -423,18 +483,62 @@ Return ONLY valid JSON (no markdown, no backticks, no explanation):
 
     const textContent = message.content.find((c) => c.type === 'text')?.text;
 
-    // Add logging to see what Claude returns
-    console.log('  🔍 Claude response:', textContent);
+    // Parse the JSON response
+let extractedData;
+try {
+  let cleanedText = textContent;
+  
+  // Remove any text before the JSON (like "Looking at this document...")
+  const jsonStart = cleanedText.indexOf('{');
+  const jsonEnd = cleanedText.lastIndexOf('}');
+  
+  if (jsonStart !== -1 && jsonEnd !== -1) {
+    cleanedText = cleanedText.substring(jsonStart, jsonEnd + 1);
+  }
+  
+  // Remove markdown code blocks if present
+  cleanedText = cleanedText.replace(/```json\n?|\n?```/g, '').trim();
+  
+  extractedData = JSON.parse(cleanedText);
+  console.log('  ✅ Successfully parsed JSON data');
+} catch (parseError) {
+  console.error('  ❌ JSON Parse Error:', parseError);
+  console.error('  📄 Response Text:', textContent);
+  throw new Error('Failed to parse Claude response as JSON');
+}
+
+    // ========== ZIP-TO-ZONE FALLBACK LOGIC ==========
+    // If zone is missing or invalid, try to determine from delivery ZIP
+    if (!extractedData.zone || !VALID_ZONES.includes(extractedData.zone.toUpperCase())) {
+      // Clean the ZIP code (remove any non-numeric characters and take first 5 digits)
+      const zipCode = extractedData.deliveryZip?.replace(/\D/g, '').substring(0, 5);
+      
+      if (zipCode && ZIP_TO_ZONE[zipCode]) {
+        extractedData.zone = ZIP_TO_ZONE[zipCode];
+        extractedData.zoneSource = 'ZIP';
+        console.log(`  🗺️  Zone determined from ZIP ${zipCode}: ${extractedData.zone}`);
+      } else {
+        extractedData.zoneSource = 'BOL';
+        if (!extractedData.zone) {
+          console.warn(`  ⚠️  No zone found on BOL and ZIP code ${zipCode || 'N/A'} not in lookup table`);
+        }
+      }
+    } else {
+      extractedData.zoneSource = 'BOL';
+      console.log(`  ✓ Zone found on BOL: ${extractedData.zone}`);
+    }
+    // ================================================
 
     return {
       pageNumber,
       data: textContent,
+      ...extractedData
     };
   } catch (error) {
     console.error(`Error processing page ${pageNumber}:`, error);
     throw error;
   }
-}  // ← THIS WAS MISSING!
+}
 
 // Process BOL endpoint
 app.post('/api/process-bol', async (req, res) => {
@@ -492,6 +596,7 @@ app.listen(PORT, () => {
   console.log(`📡 Health check: http://localhost:${PORT}/health`);
   console.log(`\n📋 Extraction includes:`);
   console.log(`   ✓ PRO# with suffix detection (1A, 1B, etc.)`);
+  console.log(`   ✓ Zone with ZIP code fallback`);
   console.log(`   ✓ Delivery address for consolidation`);
   console.log(`   ✓ Over length (97+ inches only)`);
   console.log(`   ✓ Time-specific from "Req Del From:" field`);
