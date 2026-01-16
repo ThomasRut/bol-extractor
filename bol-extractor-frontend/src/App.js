@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Upload, Download, Copy, Loader2, AlertCircle, Settings, X } from 'lucide-react';
 
-// Price table matching contract
+// Price table for zone-based pricing
 const PRICE_TABLE = {
   'A': { '10000+': 0.0121, '5000+': 0.0129, '2000+': 0.0137, '1000+': 0.0144, min: 18.00, max: 160.00 },
   'B': { '10000+': 0.0132, '5000+': 0.0140, '2000+': 0.0147, '1000+': 0.0157, min: 20.00, max: 180.00 },
@@ -279,6 +279,9 @@ function App() {
                     driver: fileObj.driverName,
                     filename: fileObj.file.name,
                     pageNumber: pageResult.pageNumber,
+                    isFixedLane: pageResult.isFixedLane || false,
+                    laneKey: pageResult.laneKey || '',
+                    fixedPrice: pageResult.fixedPrice || 0,
                     zoneSource: pageResult.zoneSource || 'BOL'
                   });
                 } catch (parseError) {
@@ -302,6 +305,32 @@ function App() {
       console.log('📊 Results after consolidation:', consolidatedResults.length);
 
       const calculatedResults = consolidatedResults.map(result => {
+        // ========== CHECK FOR FIXED PRICE LANE FIRST ==========
+        if (result.isFixedLane && result.fixedPrice) {
+          console.log(`🛣️ Fixed lane: ${result.laneKey} = ${result.fixedPrice}`);
+          return {
+            pro: result.pro,
+            driver: result.driver,
+            zone: '',  // Blank for fixed lanes
+            zoneSource: 'FIXED_LANE',
+            weight: result.weight?.toFixed(0) || '0',
+            volumeFt3: result.volumeFt3?.toFixed(2) || '0.00',
+            chargeable: '',  // Blank for fixed lanes
+            freight: result.fixedPrice.toFixed(2),
+            fuelSurcharge: '',  // Blank for fixed lanes
+            debrisRemoval: '',  // Blank for fixed lanes
+            liftgate: '',
+            inside: '',
+            overLength: '',
+            residential: '',
+            timeSpecific: '',
+            detention: 0,
+            extras: '',  // Blank for fixed lanes
+            total: result.fixedPrice.toFixed(2),
+          };
+        }
+
+        // ========== ZONE-BASED PRICING WITH ACCESSORIALS ==========
         const chargeableWeight = calculateChargeableWeight(result.volumeFt3);
         const applicableWeight = Math.max(result.weight || 0, chargeableWeight);
         
@@ -370,11 +399,11 @@ function App() {
     
     const rows = results.map(r => [
       r.pro, r.driver, r.zone, r.weight, r.volumeFt3, r.chargeable,
-      r.freight === 'Quote Required' ? r.freight : `$${r.freight}`,
-      r.fuelSurcharge === 'Quote Required' ? r.fuelSurcharge : `$${r.fuelSurcharge}`,
-      `$${r.debrisRemoval}`, r.liftgate, r.inside, r.overLength, r.residential,
-      r.timeSpecific, r.detention > 0 ? `${r.detention} min` : '', `$${r.extras}`,
-      r.total === 'Quote Required' ? r.total : `$${r.total}`
+      r.freight === 'Quote Required' ? r.freight : (r.freight ? `${r.freight}` : ''),
+      r.fuelSurcharge === 'Quote Required' ? r.fuelSurcharge : (r.fuelSurcharge ? `${r.fuelSurcharge}` : ''),
+      r.debrisRemoval ? `${r.debrisRemoval}` : '', r.liftgate, r.inside, r.overLength, r.residential,
+      r.timeSpecific, r.detention > 0 ? `${r.detention} min` : '', r.extras ? `${r.extras}` : '',
+      r.total === 'Quote Required' ? r.total : `${r.total}`
     ]);
 
     const tableText = [headers, ...rows].map(row => row.join('\t')).join('\n');
@@ -411,7 +440,7 @@ function App() {
           <div className="flex justify-between items-center mb-6">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">BOL Data Extractor</h1>
-              <p className="text-gray-600 mt-1">Automated freight calculation system</p>
+              <p className="text-gray-600 mt-1">Automated freight calculation system with lane pricing</p>
             </div>
             <button
               onClick={() => setShowSettings(!showSettings)}
@@ -425,26 +454,36 @@ function App() {
           {showSettings && (
             <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
               <h3 className="font-medium text-gray-900 mb-3">Configuration</h3>
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2">
-                  <span className="text-sm text-gray-700">Fuel Surcharge:</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.5"
-                    value={fuelSurchargePercent * 100}
-                    onChange={(e) => setFuelSurchargePercent(parseFloat(e.target.value) / 100)}
-                    className="w-20 px-3 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <span className="text-sm text-gray-700">%</span>
-                </label>
-                <button
-                  onClick={() => setFuelSurchargePercent(0.24)}
-                  className="text-sm text-blue-600 hover:text-blue-700"
-                >
-                  Reset to 24%
-                </button>
+              <div className="space-y-3">
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2">
+                    <span className="text-sm text-gray-700">Fuel Surcharge:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.5"
+                      value={fuelSurchargePercent * 100}
+                      onChange={(e) => setFuelSurchargePercent(parseFloat(e.target.value) / 100)}
+                      className="w-20 px-3 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-700">%</span>
+                  </label>
+                  <button
+                    onClick={() => setFuelSurchargePercent(0.24)}
+                    className="text-sm text-blue-600 hover:text-blue-700"
+                  >
+                    Reset to 24%
+                  </button>
+                </div>
+                <div className="text-sm text-gray-600 border-t pt-3 mt-3">
+                  <p className="font-medium mb-1">Fixed Price Lanes:</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li>GA → NJ: $2,000 (flat, no accessorials)</li>
+                    <li>CA → GA: $6,000 (flat, no accessorials)</li>
+                    <li>GA → CA: $3,600 (flat, no accessorials)</li>
+                  </ul>
+                </div>
               </div>
             </div>
           )}
@@ -586,18 +625,18 @@ function App() {
                       <td className="border px-3 py-2 text-right">{row.weight}</td>
                       <td className="border px-3 py-2 text-right">{row.volumeFt3}</td>
                       <td className="border px-3 py-2 text-right">{row.chargeable}</td>
-                      <td className="border px-3 py-2 text-right">{row.freight === 'Quote Required' ? row.freight : `$${row.freight}`}</td>
-                      <td className="border px-3 py-2 text-right">{row.fuelSurcharge === 'Quote Required' ? row.fuelSurcharge : `$${row.fuelSurcharge}`}</td>
-                      <td className="border px-3 py-2 text-right">${row.debrisRemoval}</td>
+                      <td className="border px-3 py-2 text-right">{row.freight === 'Quote Required' ? row.freight : (row.freight ? `${row.freight}` : '')}</td>
+                      <td className="border px-3 py-2 text-right">{row.fuelSurcharge === 'Quote Required' ? row.fuelSurcharge : (row.fuelSurcharge ? `${row.fuelSurcharge}` : '')}</td>
+                      <td className="border px-3 py-2 text-right">{row.debrisRemoval ? `${row.debrisRemoval}` : ''}</td>
                       <td className="border px-3 py-2 text-center">{row.liftgate}</td>
                       <td className="border px-3 py-2 text-center">{row.inside}</td>
                       <td className="border px-3 py-2 text-center">{row.overLength}</td>
                       <td className="border px-3 py-2 text-center">{row.residential}</td>
                       <td className="border px-3 py-2 text-center">{row.timeSpecific}</td>
                       <td className="border px-3 py-2 text-right">{row.detention > 0 ? `${row.detention} min` : ''}</td>
-                      <td className="border px-3 py-2 text-right">${row.extras}</td>
+                      <td className="border px-3 py-2 text-right">{row.extras ? `${row.extras}` : ''}</td>
                       <td className="border px-3 py-2 text-right font-bold bg-blue-50">
-                        {row.total === 'Quote Required' ? row.total : `$${row.total}`}
+                        {row.total === 'Quote Required' ? row.total : `${row.total}`}
                       </td>
                     </tr>
                   ))}
