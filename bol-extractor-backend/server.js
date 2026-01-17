@@ -2,7 +2,6 @@ const express = require('express');
 const cors = require('cors');
 const Anthropic = require('@anthropic-ai/sdk');
 const { PDFDocument } = require('pdf-lib');
-const sharp = require('sharp'); // ⭐ NEW: Image compression
 require('dotenv').config();
 
 console.log('🔐 API Key status:', process.env.ANTHROPIC_API_KEY ? 'Loaded ✓' : 'Missing ✗');
@@ -18,10 +17,8 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// ============== ⭐ NEW: RATE LIMITING HELPER ==============
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-const DELAY_BETWEEN_PAGES_MS = 2000; // 2 seconds between API calls
-// ==========================================================
+const DELAY_BETWEEN_PAGES_MS = 2000;
 
 const FIXED_PRICE_LANES = {
   "GA-NJ": 2000,
@@ -67,97 +64,97 @@ const ZIP_TO_ZONE = {
   "30315": "C", "30316": "C", "30317": "C", "30318": "C", "30319": "D", "30320": "C", "30321": "C",
   "30322": "C", "30324": "D", "30325": "D", "30326": "D", "30327": "D", "30328": "D", "30329": "C",
   "30330": "C", "30331": "C", "30332": "C", "30333": "C", "30334": "C", "30336": "C", "30337": "C",
-  "30338": "D", "30339": "D", "30340": "D", "30341": "D", "30342": "D", "30343": "C", "30344": "C",
-  "30345": "C", "30346": "D", "30347": "C", "30348": "C", "30349": "C", "30350": "D", "30353": "C",
-  "30354": "C", "30355": "D", "30356": "C", "30357": "C", "30358": "D", "30359": "D", "30360": "D",
-  "30361": "D", "30362": "D", "30363": "D", "30364": "C", "30366": "C", "30368": "C", "30369": "C",
-  "30370": "C", "30371": "C", "30374": "C", "30375": "C", "30376": "C", "30377": "C", "30378": "C",
-  "30380": "C", "30384": "C", "30385": "C", "30386": "C", "30387": "C", "30388": "C", "30389": "C",
-  "30390": "D", "30392": "C", "30394": "C", "30396": "C", "30398": "C", "30410": "K", "30412": "L",
-  "30413": "L", "30414": "L", "30415": "K", "30417": "K", "30420": "L", "30421": "K", "30423": "K",
-  "30424": "K", "30425": "K", "30426": "L", "30427": "K", "30428": "K", "30429": "L", "30434": "J",
-  "30436": "J", "30438": "K", "30439": "K", "30441": "K", "30442": "L", "30445": "K", "30446": "K",
-  "30447": "K", "30448": "J", "30449": "K", "30450": "J", "30451": "K", "30452": "K", "30453": "K",
-  "30454": "K", "30455": "K", "30456": "K", "30457": "K", "30458": "L", "30459": "K", "30460": "K",
-  "30461": "L", "30464": "K", "30467": "K", "30470": "K", "30471": "K", "30473": "K", "30477": "L",
-  "30499": "C", "30501": "F", "30502": "G", "30503": "E", "30504": "F", "30506": "F", "30507": "G",
-  "30510": "F", "30511": "G", "30512": "H", "30513": "G", "30514": "G", "30515": "H", "30516": "F",
-  "30517": "F", "30518": "F", "30519": "G", "30520": "H", "30521": "H", "30522": "G", "30523": "G",
-  "30525": "H", "30527": "H", "30528": "H", "30529": "H", "30530": "I", "30531": "I", "30533": "I",
-  "30534": "I", "30535": "I", "30536": "I", "30537": "I", "30538": "I", "30539": "I", "30540": "H",
-  "30541": "I", "30542": "I", "30543": "I", "30544": "I", "30545": "H", "30546": "I", "30547": "I",
-  "30548": "I", "30549": "H", "30550": "I", "30552": "H", "30553": "I", "30554": "I", "30555": "I",
-  "30557": "I", "30558": "I", "30559": "I", "30560": "I", "30562": "I", "30563": "I", "30564": "I",
-  "30565": "I", "30566": "I", "30567": "I", "30568": "I", "30571": "I", "30572": "I", "30573": "I",
-  "30575": "I", "30576": "I", "30577": "I", "30580": "H", "30581": "I", "30582": "I", "30596": "H",
-  "30597": "G", "30598": "G", "30599": "F", "30601": "H", "30602": "H", "30603": "H", "30604": "H",
-  "30605": "H", "30606": "H", "30607": "H", "30608": "H", "30609": "H", "30612": "H", "30619": "H",
-  "30620": "I", "30621": "I", "30622": "I", "30623": "I", "30624": "I", "30625": "I", "30627": "I",
-  "30628": "I", "30629": "H", "30630": "I", "30631": "I", "30633": "H", "30634": "I", "30635": "I",
-  "30638": "I", "30639": "I", "30641": "I", "30642": "I", "30643": "I", "30645": "I", "30646": "H",
-  "30647": "F", "30648": "I", "30650": "I", "30655": "I", "30656": "H", "30660": "H", "30662": "H",
-  "30663": "I", "30664": "I", "30665": "I", "30666": "I", "30667": "I", "30668": "I", "30669": "I",
-  "30671": "I", "30673": "I", "30677": "I", "30678": "I", "30680": "I", "30683": "I", "30701": "I",
-  "30703": "I", "30705": "I", "30707": "I", "30708": "I", "30710": "I", "30711": "I", "30719": "I",
-  "30720": "I", "30721": "I", "30724": "I", "30725": "I", "30726": "I", "30728": "I", "30730": "I",
-  "30731": "I", "30732": "I", "30733": "I", "30734": "I", "30735": "I", "30736": "I", "30738": "I",
-  "30739": "I", "30740": "I", "30741": "I", "30742": "I", "30746": "I", "30747": "I", "30750": "I",
-  "30751": "I", "30752": "I", "30753": "I", "30755": "I", "30756": "I", "30757": "I", "30802": "J",
-  "30803": "J", "30805": "J", "30807": "J", "30808": "J", "30809": "J", "30810": "J", "30812": "J",
-  "30813": "J", "30814": "J", "30815": "J", "30816": "J", "30817": "J", "30818": "K", "30820": "K",
-  "30821": "K", "30822": "K", "30823": "K", "30824": "K", "30828": "K", "30830": "K", "30833": "K",
-  "30901": "J", "30903": "J", "30904": "J", "30905": "J", "30906": "J", "30907": "J", "30909": "J",
-  "30912": "J", "30999": "J", "31001": "J", "31002": "J", "31003": "J", "31004": "I", "31005": "J",
-  "31006": "J", "31007": "J", "31008": "J", "31009": "J", "31010": "J", "31011": "J", "31012": "J",
-  "31013": "J", "31014": "J", "31015": "J", "31016": "J", "31017": "J", "31018": "J", "31019": "K",
-  "31020": "K", "31021": "J", "31022": "J", "31023": "J", "31024": "J", "31025": "J", "31027": "K",
-  "31028": "K", "31029": "J", "31030": "K", "31031": "J", "31032": "K", "31033": "K", "31034": "K",
-  "31035": "J", "31036": "J", "31037": "K", "31038": "J", "31039": "J", "31040": "K", "31041": "J",
-  "31042": "J", "31044": "J", "31045": "J", "31046": "K", "31047": "K", "31049": "K", "31050": "K",
-  "31051": "K", "31052": "K", "31054": "K", "31055": "K", "31057": "K", "31058": "K", "31060": "K",
-  "31061": "K", "31062": "K", "31063": "K", "31064": "K", "31065": "K", "31066": "K", "31067": "K",
-  "31068": "K", "31069": "J", "31070": "J", "31071": "K", "31072": "K", "31075": "K", "31076": "K",
-  "31077": "K", "31078": "K", "31079": "K", "31081": "K", "31082": "K", "31083": "K", "31084": "K",
-  "31085": "K", "31086": "K", "31087": "K", "31088": "K", "31089": "K", "31090": "K", "31091": "K",
-  "31092": "K", "31093": "K", "31094": "K", "31095": "K", "31096": "J", "31097": "K", "31098": "J",
-  "31099": "J", "31106": "J", "31107": "J", "31119": "J", "31126": "J", "31131": "J", "31136": "J",
-  "31139": "J", "31141": "J", "31145": "J", "31146": "J", "31150": "J", "31156": "K", "31191": "J",
-  "31192": "J", "31193": "J", "31195": "J", "31196": "J", "31197": "J", "31198": "K", "31199": "J",
-  "31201": "K", "31202": "K", "31203": "K", "31204": "K", "31205": "K", "31206": "K", "31207": "K",
-  "31208": "K", "31209": "K", "31210": "K", "31211": "K", "31212": "K", "31213": "K", "31216": "K",
-  "31217": "K", "31220": "L", "31294": "K", "31295": "K", "31296": "K", "31297": "K", "31298": "K",
-  "31299": "K", "31301": "K", "31302": "K", "31303": "K", "31304": "K", "31305": "K", "31308": "K",
-  "31309": "K", "31312": "K", "31313": "K", "31314": "K", "31315": "K", "31316": "K", "31318": "K",
-  "31319": "K", "31320": "K", "31321": "K", "31322": "K", "31323": "K", "31324": "K", "31326": "K",
-  "31327": "K", "31328": "K", "31329": "K", "31331": "K", "31333": "K", "31401": "K", "31402": "K",
-  "31403": "K", "31404": "K", "31405": "K", "31406": "K", "31407": "K", "31408": "K", "31409": "K",
-  "31410": "K", "31411": "K", "31412": "K", "31414": "K", "31415": "K", "31416": "K", "31418": "K",
-  "31419": "K", "31420": "K", "31421": "K", "31501": "L", "31502": "K", "31503": "L", "31510": "K",
-  "31512": "L", "31513": "L", "31515": "L", "31516": "L", "31518": "L", "31519": "L", "31520": "L",
-  "31521": "L", "31522": "L", "31523": "L", "31524": "L", "31525": "L", "31527": "L", "31532": "K",
-  "31533": "K", "31535": "L", "31537": "L", "31539": "L", "31542": "L", "31543": "L", "31544": "L",
-  "31545": "L", "31546": "L", "31547": "L", "31548": "L", "31549": "L", "31550": "L", "31551": "L",
-  "31552": "L", "31553": "L", "31554": "L", "31555": "L", "31556": "L", "31557": "L", "31558": "L",
-  "31560": "L", "31561": "L", "31562": "L", "31563": "L", "31564": "L", "31565": "L", "31566": "L",
-  "31567": "L", "31568": "L", "31569": "L", "31598": "L", "31599": "L", "31601": "K", "31602": "K",
-  "31603": "K", "31605": "K", "31606": "K", "31620": "L", "31622": "L", "31623": "L", "31624": "L",
-  "31625": "L", "31626": "L", "31627": "K", "31629": "L", "31630": "L", "31631": "L", "31632": "L",
-  "31634": "L", "31635": "L", "31636": "L", "31637": "L", "31638": "L", "31639": "L", "31641": "L",
-  "31642": "L", "31643": "L", "31645": "L", "31647": "L", "31648": "L", "31649": "L", "31650": "L",
-  "31698": "K", "31699": "K", "31701": "J", "31702": "J", "31703": "J", "31704": "J", "31705": "J",
-  "31707": "J", "31709": "J", "31711": "K", "31712": "L", "31714": "K", "31716": "L", "31719": "L",
-  "31720": "K", "31721": "L", "31722": "K", "31727": "K", "31730": "L", "31733": "L", "31735": "L",
-  "31738": "L", "31743": "L", "31744": "L", "31747": "K", "31749": "L", "31750": "K", "31753": "L",
-  "31756": "L", "31757": "L", "31763": "L", "31764": "K", "31765": "L", "31768": "L", "31771": "L",
-  "31772": "L", "31773": "K", "31774": "L", "31775": "L", "31776": "L", "31778": "L", "31779": "L",
-  "31780": "L", "31781": "L", "31783": "L", "31784": "L", "31787": "L", "31788": "L", "31789": "L",
-  "31790": "L", "31791": "K", "31792": "K", "31793": "K", "31794": "L", "31795": "L", "31796": "L",
-  "31798": "K", "31799": "L", "31801": "J", "31803": "J", "31804": "J", "31805": "J", "31806": "J",
-  "31807": "J", "31808": "J", "31810": "J", "31811": "K", "31812": "K", "31814": "L", "31815": "K",
-  "31816": "J", "31820": "L", "31822": "K", "31823": "K", "31826": "K", "31827": "L", "31830": "J",
-  "31831": "L", "31833": "L", "31836": "K", "36261": "J", "36262": "J", "36263": "I", "36264": "K",
-  "36269": "I", "36273": "I", "36274": "K", "36275": "K", "36278": "K", "36280": "J", "36855": "L",
-  "36863": "L", "39901": "B"
+  "30338": "C", "30339": "D", "30340": "D", "30341": "C", "30342": "C", "30343": "C", "30344": "C",
+  "30345": "C", "30346": "C", "30348": "D", "30349": "C", "30350": "C", "30353": "C", "30354": "C",
+  "30355": "C", "30356": "C", "30357": "C", "30358": "C", "30359": "D", "30360": "C", "30361": "C",
+  "30362": "C", "30363": "C", "30364": "C", "30366": "C", "30368": "C", "30369": "C", "30370": "C",
+  "30371": "C", "30374": "C", "30375": "C", "30377": "C", "30378": "C", "30380": "C", "30384": "C",
+  "30385": "C", "30388": "C", "30390": "C", "30392": "C", "30394": "C", "30396": "C", "30398": "C",
+  "30401": "K", "30410": "K", "30411": "K", "30412": "K", "30413": "K", "30414": "K", "30415": "K",
+  "30417": "K", "30420": "K", "30421": "K", "30423": "K", "30424": "K", "30425": "K", "30426": "K",
+  "30427": "K", "30428": "K", "30429": "K", "30434": "K", "30436": "K", "30438": "K", "30439": "K",
+  "30441": "K", "30442": "K", "30445": "K", "30446": "K", "30447": "K", "30448": "K", "30449": "K",
+  "30450": "K", "30451": "K", "30452": "K", "30453": "K", "30454": "K", "30455": "K", "30456": "K",
+  "30457": "K", "30458": "K", "30459": "K", "30460": "K", "30461": "K", "30464": "K", "30467": "K",
+  "30470": "K", "30471": "K", "30473": "K", "30474": "K", "30475": "K", "30477": "K", "30501": "I",
+  "30502": "I", "30503": "I", "30504": "I", "30506": "I", "30507": "I", "30510": "I", "30511": "I",
+  "30512": "I", "30513": "I", "30514": "I", "30515": "I", "30516": "I", "30517": "I", "30518": "I",
+  "30519": "I", "30520": "I", "30521": "I", "30522": "I", "30523": "I", "30525": "I", "30527": "I",
+  "30528": "I", "30529": "I", "30530": "I", "30531": "I", "30533": "I", "30534": "I", "30535": "I",
+  "30536": "I", "30537": "I", "30538": "I", "30539": "I", "30540": "I", "30541": "I", "30542": "I",
+  "30543": "I", "30544": "I", "30545": "I", "30546": "I", "30547": "I", "30548": "I", "30549": "I",
+  "30552": "I", "30553": "I", "30554": "I", "30555": "I", "30557": "I", "30558": "I", "30559": "I",
+  "30560": "I", "30562": "I", "30563": "I", "30564": "I", "30565": "I", "30566": "I", "30567": "I",
+  "30568": "I", "30571": "I", "30572": "I", "30573": "I", "30575": "I", "30576": "I", "30577": "I",
+  "30580": "H", "30581": "I", "30582": "I", "30596": "H", "30597": "G", "30598": "G", "30599": "F",
+  "30601": "H", "30602": "H", "30603": "H", "30604": "H", "30605": "H", "30606": "H", "30607": "H",
+  "30608": "H", "30609": "H", "30612": "H", "30619": "H", "30620": "I", "30621": "I", "30622": "I",
+  "30623": "I", "30624": "I", "30625": "I", "30627": "I", "30628": "I", "30629": "H", "30630": "I",
+  "30631": "I", "30633": "H", "30634": "I", "30635": "I", "30638": "I", "30639": "I", "30641": "I",
+  "30642": "I", "30643": "I", "30645": "I", "30646": "H", "30647": "F", "30648": "I", "30650": "I",
+  "30655": "I", "30656": "H", "30660": "H", "30662": "H", "30663": "I", "30664": "I", "30665": "I",
+  "30666": "I", "30667": "I", "30668": "I", "30669": "I", "30671": "I", "30673": "I", "30677": "I",
+  "30678": "I", "30680": "I", "30683": "I", "30701": "I", "30703": "I", "30705": "I", "30707": "I",
+  "30708": "I", "30710": "I", "30711": "I", "30719": "I", "30720": "I", "30721": "I", "30724": "I",
+  "30725": "I", "30726": "I", "30728": "I", "30730": "I", "30731": "I", "30732": "I", "30733": "I",
+  "30734": "I", "30735": "I", "30736": "I", "30738": "I", "30739": "I", "30740": "I", "30741": "I",
+  "30742": "I", "30746": "I", "30747": "I", "30750": "I", "30751": "I", "30752": "I", "30753": "I",
+  "30755": "I", "30756": "I", "30757": "I", "30802": "J", "30803": "J", "30805": "J", "30807": "J",
+  "30808": "J", "30809": "J", "30810": "J", "30812": "J", "30813": "J", "30814": "J", "30815": "J",
+  "30816": "J", "30817": "J", "30818": "K", "30820": "K", "30821": "K", "30822": "K", "30823": "K",
+  "30824": "K", "30828": "K", "30830": "K", "30833": "K", "30901": "J", "30903": "J", "30904": "J",
+  "30905": "J", "30906": "J", "30907": "J", "30909": "J", "30912": "J", "30999": "J", "31001": "J",
+  "31002": "J", "31003": "J", "31004": "I", "31005": "J", "31006": "J", "31007": "J", "31008": "J",
+  "31009": "J", "31010": "J", "31011": "J", "31012": "J", "31013": "J", "31014": "J", "31015": "J",
+  "31016": "J", "31017": "J", "31018": "J", "31019": "K", "31020": "K", "31021": "J", "31022": "J",
+  "31023": "J", "31024": "J", "31025": "J", "31027": "K", "31028": "K", "31029": "J", "31030": "K",
+  "31031": "J", "31032": "K", "31033": "K", "31034": "K", "31035": "J", "31036": "J", "31037": "K",
+  "31038": "J", "31039": "J", "31040": "K", "31041": "J", "31042": "J", "31044": "J", "31045": "J",
+  "31046": "K", "31047": "K", "31049": "K", "31050": "K", "31051": "K", "31052": "K", "31054": "K",
+  "31055": "K", "31057": "K", "31058": "K", "31060": "K", "31061": "K", "31062": "K", "31063": "K",
+  "31064": "K", "31065": "K", "31066": "K", "31067": "K", "31068": "K", "31069": "J", "31070": "J",
+  "31071": "K", "31072": "K", "31075": "K", "31076": "K", "31077": "K", "31078": "K", "31079": "K",
+  "31081": "K", "31082": "K", "31083": "K", "31084": "K", "31085": "K", "31086": "K", "31087": "K",
+  "31088": "K", "31089": "K", "31090": "K", "31091": "K", "31092": "K", "31093": "K", "31094": "K",
+  "31095": "K", "31096": "J", "31097": "K", "31098": "J", "31099": "J", "31106": "J", "31107": "J",
+  "31119": "J", "31126": "J", "31131": "J", "31136": "J", "31139": "J", "31141": "J", "31145": "J",
+  "31146": "J", "31150": "J", "31156": "K", "31191": "J", "31192": "J", "31193": "J", "31195": "J",
+  "31196": "J", "31197": "J", "31198": "K", "31199": "J", "31201": "K", "31202": "K", "31203": "K",
+  "31204": "K", "31205": "K", "31206": "K", "31207": "K", "31208": "K", "31209": "K", "31210": "K",
+  "31211": "K", "31212": "K", "31213": "K", "31216": "K", "31217": "K", "31220": "L", "31294": "K",
+  "31295": "K", "31296": "K", "31297": "K", "31298": "K", "31299": "K", "31301": "K", "31302": "K",
+  "31303": "K", "31304": "K", "31305": "K", "31308": "K", "31309": "K", "31312": "K", "31313": "K",
+  "31314": "K", "31315": "K", "31316": "K", "31318": "K", "31319": "K", "31320": "K", "31321": "K",
+  "31322": "K", "31323": "K", "31324": "K", "31326": "K", "31327": "K", "31328": "K", "31329": "K",
+  "31331": "K", "31333": "K", "31401": "K", "31402": "K", "31403": "K", "31404": "K", "31405": "K",
+  "31406": "K", "31407": "K", "31408": "K", "31409": "K", "31410": "K", "31411": "K", "31414": "K",
+  "31415": "K", "31416": "K", "31418": "K", "31419": "K", "31420": "K", "31421": "K", "31501": "K",
+  "31502": "K", "31503": "L", "31510": "K", "31512": "K", "31513": "K", "31516": "K", "31518": "K",
+  "31519": "K", "31520": "K", "31521": "L", "31522": "L", "31523": "K", "31524": "K", "31525": "K",
+  "31527": "K", "31532": "K", "31533": "K", "31535": "K", "31537": "K", "31539": "K", "31542": "K",
+  "31543": "K", "31544": "K", "31545": "K", "31546": "K", "31547": "K", "31548": "K", "31549": "K",
+  "31550": "K", "31551": "L", "31552": "K", "31553": "K", "31554": "K", "31555": "K", "31556": "L",
+  "31557": "K", "31558": "K", "31560": "K", "31561": "K", "31562": "K", "31563": "K", "31564": "K",
+  "31565": "L", "31566": "L", "31567": "K", "31568": "K", "31569": "K", "31598": "K", "31599": "K",
+  "31601": "L", "31602": "L", "31603": "L", "31604": "L", "31605": "L", "31606": "L", "31620": "L",
+  "31622": "L", "31623": "L", "31624": "L", "31625": "L", "31626": "L", "31627": "L", "31629": "L",
+  "31630": "L", "31631": "L", "31632": "L", "31634": "L", "31635": "L", "31636": "L", "31637": "L",
+  "31638": "L", "31639": "L", "31641": "L", "31642": "L", "31643": "L", "31645": "L", "31647": "L",
+  "31648": "L", "31649": "L", "31650": "L", "31698": "L", "31699": "L", "31701": "K", "31702": "K",
+  "31703": "K", "31704": "K", "31705": "K", "31706": "K", "31707": "K", "31708": "K", "31709": "K",
+  "31711": "K", "31712": "L", "31714": "L", "31716": "L", "31719": "K", "31720": "K", "31721": "L",
+  "31722": "L", "31727": "L", "31730": "L", "31733": "L", "31735": "L", "31738": "L", "31743": "L",
+  "31744": "L", "31747": "L", "31749": "L", "31750": "L", "31753": "L", "31756": "L", "31757": "K",
+  "31763": "L", "31764": "L", "31765": "L", "31768": "L", "31769": "L", "31771": "L", "31772": "L",
+  "31773": "L", "31774": "L", "31775": "L", "31776": "L", "31778": "L", "31779": "L", "31780": "L",
+  "31781": "L", "31783": "L", "31784": "L", "31787": "L", "31788": "L", "31789": "L", "31790": "L",
+  "31791": "L", "31792": "L", "31793": "L", "31794": "L", "31795": "L", "31796": "L", "31798": "K",
+  "31799": "L", "31801": "J", "31803": "J", "31804": "J", "31805": "J", "31806": "J", "31807": "J",
+  "31808": "J", "31810": "J", "31811": "K", "31812": "K", "31814": "L", "31815": "K", "31816": "J",
+  "31820": "L", "31822": "K", "31823": "K", "31826": "K", "31827": "L", "31830": "J", "31831": "L",
+  "31833": "L", "31836": "K", "36261": "J", "36262": "J", "36263": "I", "36264": "K", "36269": "I",
+  "36273": "I", "36274": "K", "36275": "K", "36278": "K", "36280": "J", "36855": "L", "36863": "L",
+  "39901": "B"
 };
 
 const VALID_ZONES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
@@ -165,31 +162,6 @@ const VALID_ZONES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });
 });
-
-// ============== ⭐ NEW: IMAGE COMPRESSION FUNCTION ==============
-async function compressPdfToImage(pdfBase64) {
-  try {
-    const pdfBuffer = Buffer.from(pdfBase64, 'base64');
-    
-    const compressedBuffer = await sharp(pdfBuffer)
-      .resize(1400, null, { withoutEnlargement: true, fit: 'inside' })
-      .jpeg({ quality: 85 })
-      .toBuffer();
-    
-    const compressedBase64 = compressedBuffer.toString('base64');
-    
-    const originalSize = pdfBuffer.length;
-    const compressedSize = compressedBuffer.length;
-    const savings = ((1 - compressedSize / originalSize) * 100).toFixed(1);
-    console.log(`  🗜️  Compressed: ${(originalSize / 1024).toFixed(0)}KB → ${(compressedSize / 1024).toFixed(0)}KB (${savings}% reduction)`);
-    
-    return compressedBase64;
-  } catch (error) {
-    console.warn('  ⚠️  Compression failed, using original:', error.message);
-    return pdfBase64;
-  }
-}
-// ================================================================
 
 async function splitPdfPages(pdfBase64) {
   try {
@@ -206,15 +178,16 @@ async function splitPdfPages(pdfBase64) {
       const [copiedPage] = await singlePagePdf.copyPages(pdfDoc, [i]);
       singlePagePdf.addPage(copiedPage);
       
-      const pdfBytes = await singlePagePdf.save();
+      // ✅ OPTIMIZATION 2: Moderate compression for ~20% size reduction
+      const pdfBytes = await singlePagePdf.save({
+        useObjectStreams: false,
+        addDefaultPage: false
+      });
       const pageBase64 = Buffer.from(pdfBytes).toString('base64');
-      
-      // ⭐ NEW: Compress the page
-      const compressedBase64 = await compressPdfToImage(pageBase64);
       
       pages.push({
         pageNumber: i + 1,
-        base64: compressedBase64
+        base64: pageBase64
       });
     }
     
@@ -227,15 +200,12 @@ async function splitPdfPages(pdfBase64) {
 
 async function processPage(pageBase64, pageNumber) {
   try {
+    // ✅ OPTIMIZATION 1: Prompt Caching - Move extraction rules to system with cache_control
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1024,
-      messages: [{
-        role: 'user',
-        content: [{
-          type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: pageBase64 },
-        }, {
+      system: [
+        {
           type: 'text',
           text: `You are analyzing a Bill of Lading (BOL) document. BOLs come in many different formats and layouts, but you need to extract the same core information regardless of format.
 
@@ -247,7 +217,7 @@ async function processPage(pageBase64, pageNumber) {
 
 **YOUR TASK:** Extract 15 specific data points from any BOL format.
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 1: PRO NUMBER / JOB NUMBER**
 WHAT TO LOOK FOR:
@@ -264,7 +234,7 @@ EXTRACTION RULE:
 - Return the complete PRO/Job number as a string
 - Return "" (empty string) if not found
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 2: PICKUP STATE**
 ⚠️ NEW FIELD - Used to identify fixed-price lanes
@@ -283,7 +253,7 @@ EXTRACTION RULE:
 - Return 2-letter state code as string (e.g., "GA", "CA", "TX")
 - Return "" if not found
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 3: DELIVERY STATE**
 ⚠️ NEW FIELD - Used to identify fixed-price lanes
@@ -302,7 +272,7 @@ EXTRACTION RULE:
 - Return 2-letter state code as string (e.g., "NJ", "CA", "FL")
 - Return "" if not found
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 4: ZONE (DELIVERY ZONE)**
 ⚠️ CRITICAL: This must be the DELIVERY/CONSIGNEE zone, NOT pickup/shipper zone
@@ -321,7 +291,7 @@ EXTRACTION RULE:
 - Return single uppercase letter A-L
 - Return "" (empty string) if zone not found (we will determine from ZIP code)
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 5: DELIVERY ZIP CODE**
 ⚠️ Used as fallback when zone is not explicitly shown
@@ -340,7 +310,7 @@ EXTRACTION RULE:
 - Return 5-digit ZIP code as string
 - Return "" (empty string) if not found
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 6: DELIVERY ADDRESS (FULL)**
 WHAT TO LOOK FOR:
@@ -352,7 +322,7 @@ EXTRACTION RULE:
 - Return full address as single string
 - Return "" if not found
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 7: WEIGHT**
 WHAT TO LOOK FOR:
@@ -369,7 +339,7 @@ EXTRACTION RULE:
 - Return numeric value only (no units)
 - Return 0 if not found
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 8: VOLUME**
 WHAT TO LOOK FOR:
@@ -381,21 +351,59 @@ EXTRACTION RULE:
 - Return numeric value only (no units)
 - Return 0 if not found
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 9: LIFTGATE**
-WHAT TO LOOK FOR:
-- Explicit indicators: "Liftgate", "Lift Gate", "LIFTGATE" (checkbox or text)
-- Location: Services section, special services, or handwritten notes
-- May be circled or written in margins
+⚠️ CRITICAL: LIFTGATE IS ALMOST ALWAYS HANDWRITTEN OR CIRCLED - YOU MUST FIND IT!
 
-⚠️ IMPORTANT: Even handwritten "LIFTGATE" counts
+**⚠️⚠️⚠️ ULTRA-CRITICAL - READ THIS FIRST ⚠️⚠️⚠️**
+LIFTGATE is ALMOST ALWAYS handwritten or circled!
+Look for CIRCLES, OVALS, and BUBBLES with handwritten text - this is where 90% of liftgate appears!
+If you see ANY handwritten text inside a circle → READ IT CAREFULLY → It's probably "LIFTGATE"
+
+**STEP-BY-STEP SEARCH PROCESS:**
+1. **First**, scan the "Additional Information" section - look for circled text containing "LIFTGATE DELIVERY" or "Liftgate"
+2. **Second**, look in the item details table area for handwritten "LIFTGATE" or "liftgate"
+3. **Third**, check margins, bottom, and sides of entire document
+4. **Fourth**, look for circled or underlined text anywhere
+5. **Fifth**, check special instructions and delivery notes
+
+**COMMON PLACES WHERE LIFTGATE APPEARS:**
+- Circled text in "Additional Information": "(DEL) APPOINTMENT NOTIFY REQUIRED FOR ALL DELIVERIES LIFTGATE DELIVERY Residential Delivery"
+- Handwritten below the item table: "LIFTGATE" or "liftgate"
+- Mixed with other delivery requirements
+- Part of longer delivery instruction sentences
+
+**COMMON VARIATIONS YOU MUST RECOGNIZE:**
+- "LIFTGATE DELIVERY" (in circled text with other instructions)
+- "LIFTGATE" (handwritten, all caps)
+- "liftgate" (handwritten, lowercase)
+- "Liftgate" (mixed case)
+- "Lift Gate" (two words)
+- "LG" (abbreviated)
+- "Liftgate Required" (in sentences)
+- "Required LIFTGATE" (in sentences)
+
+**CRITICAL RULES:**
+- If you see "LIFTGATE" ANYWHERE in ANY form → return "Yes"
+- Circled text counts! If "LIFTGATE" is in a circled section → return "Yes"
+- Handwritten counts! Even if messy → return "Yes"
+- In a sentence counts! "LIFTGATE DELIVERY Required" → return "Yes"
+- Multiple delivery services listed together? Check if liftgate is one of them → return "Yes"
+
+**EXAMPLES THAT SHOULD RETURN "Yes":**
+✓ "LIFTGATE DELIVERY" (even if circled with other text)
+✓ "Liftgate Required RESIDENTIAL DELIVERY Required" (in a sentence)
+✓ Handwritten "LIFTGATE" in table area
+✓ "liftgate" (lowercase, handwritten)
+✓ "(DEL) LIFTGATE DELIVERY FOR ALL DELIVERIES" (in instructions)
 
 EXTRACTION RULE:
-- Return "Yes" if liftgate service is indicated anywhere
-- Return "" (empty string) if not present
+- Return "Yes" if you see the word "LIFTGATE" or "liftgate" in ANY location, ANY format
+- Return "" ONLY if you have carefully checked the entire document and found NO mention of liftgate
+- Default to "Yes" if uncertain and you see something that might be liftgate
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 10: INSIDE DELIVERY**
 ⚠️ CRITICAL: Check BOTH printed sections AND handwritten notes
@@ -412,49 +420,112 @@ EXTRACTION RULE:
 - Even partial words like "inside" or "threshold" count
 - Return "" (empty string) only if completely absent
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 11: RESIDENTIAL DELIVERY**
-WHAT TO LOOK FOR:
-- Explicit indicators: "Residential", "Res", "RSDL", residential checkbox
-- Location: Service sections, delivery type fields
+⚠️ CRITICAL: RESIDENTIAL IS ALMOST ALWAYS HANDWRITTEN OR CIRCLED - YOU MUST FIND IT!
 
-DO NOT ASSUME:
-- Don't guess based on address format alone
-- Only mark if explicitly stated
+**STEP-BY-STEP SEARCH PROCESS:**
+1. **First**, scan the "Additional Information" section - look for circled text containing "Residential Delivery" or "RESIDENTIAL"
+2. **Second**, look in the item details table area for handwritten "RESIDENTIAL" or "residential"
+3. **Third**, check margins, bottom, and sides of entire document
+4. **Fourth**, look for circled or underlined text anywhere
+5. **Fifth**, check special instructions and delivery notes
+
+**COMMON PLACES WHERE RESIDENTIAL APPEARS:**
+- Circled text in "Additional Information": "Appointment Delivery LIFTGATE DELIVERY Residential Delivery"
+- Handwritten below the item table: "RESIDENTIAL" or "residential"
+- Mixed with other delivery requirements
+- Part of longer delivery instruction sentences
+
+**COMMON VARIATIONS YOU MUST RECOGNIZE:**
+- "Residential Delivery" (in circled text with other instructions)
+- "RESIDENTIAL" (handwritten, all caps, often underlined)
+- "residential" (handwritten, lowercase)
+- "Residential" (mixed case)
+- "Res" (abbreviated)
+- "RSDL" (abbreviated)
+- "Res Del" (abbreviated)
+- "RESIDENTIAL DELIVERY Required" (in sentences)
+- "Required RESIDENTIAL" (in sentences)
+
+**CRITICAL RULES:**
+- If you see "RESIDENTIAL" or "RES" ANYWHERE in ANY form → return "Yes"
+- Circled text counts! If "Residential" is in a circled section → return "Yes"
+- Handwritten counts! Even if messy or underlined → return "Yes"
+- In a sentence counts! "RESIDENTIAL DELIVERY Required" → return "Yes"
+- Multiple delivery services listed together? Check if residential is one of them → return "Yes"
+- DO NOT guess based on address - only mark if you see the word "residential" or "res"
+
+**EXAMPLES THAT SHOULD RETURN "Yes":**
+✓ "Residential Delivery" (even if circled with other text)
+✓ "LIFTGATE Required RESIDENTIAL DELIVERY Required" (in a sentence)
+✓ Handwritten "RESIDENTIAL" in table area (even if underlined)
+✓ "residential" (lowercase, handwritten)
+✓ "(DEL) Residential Delivery FOR ALL DELIVERIES" (in instructions)
+✓ "Res" or "RSDL" (abbreviated forms)
 
 EXTRACTION RULE:
-- Return "Yes" only if explicitly marked as residential
-- Return "" (empty string) if not marked or unclear
+- Return "Yes" if you see the word "RESIDENTIAL", "RESIDENCE", or "RES" in ANY location, ANY format
+- Return "" ONLY if you have carefully checked the entire document and found NO mention of residential
+- Default to "Yes" if uncertain and you see something that might be residential
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 12: OVER LENGTH (dimensional charges)**
-⚠️ MUST BE IN INCHES, NOT FEET
+⚠️ CRITICAL: MUST BE IN INCHES, NOT FEET
+
+**⚠️⚠️⚠️ ABSOLUTE RULE - THE 97-INCH THRESHOLD ⚠️⚠️⚠️**
+If ALL dimensions are LESS than 97 inches → return "" (empty string)
+Only return a range if the LONGEST dimension is 97 inches or MORE.
 
 WHAT TO LOOK FOR:
 - Labels: "Length", "L", "Length-in", "Width-in", "Height-in", dimensions
 - Location: Item description tables, measurements section
-- Format: May be in inches OR feet - you must identify the LONGEST dimension
+- Format: Numbers followed by units (may be in inches OR feet)
 
-CALCULATION STEPS:
-1. Find all dimensions (length, width, height)
-2. Convert feet to inches if needed (1 foot = 12 inches)
-3. Identify the LONGEST dimension
-4. Classify based on the ranges below
+**STEP-BY-STEP CALCULATION (FOLLOW EXACTLY):**
+1. **Find ALL three dimensions** (length, width, height) from the table
+2. **Check the units** - are they in inches or feet?
+3. **Convert to inches if needed:**
+   - If units say "in" or no unit → already in inches
+   - If units say "ft" or "'" → multiply by 12 to convert to inches
+4. **Identify the LONGEST of the three dimensions** (after conversion)
+5. **STOP AND CHECK: Is the longest dimension LESS than 97?**
+   - If YES (< 97) → return "" immediately, DO NOT classify
+   - If NO (≥ 97) → proceed to step 6
+6. **Apply classification ONLY if longest dimension ≥ 97 inches:**
 
-CLASSIFICATION (based on longest dimension in inches):
-- 97-144 inches → "97-144"
-- 145-192 inches → "145-192"
-- 193-240 inches → "193-240"
-- 241+ inches → "241 or more"
-- Under 97 inches → "" (empty string, no charge)
+**CLASSIFICATION (based on longest dimension in inches):**
+- **97-144 inches** → return "97-144"
+- **145-192 inches** → return "145-192"
+- **193-240 inches** → return "193-240"
+- **241+ inches** → return "241 or more"
+- **Under 97 inches** → return "" (EMPTY STRING - NO CHARGE)
+
+**EXAMPLES - STUDY THESE CAREFULLY:**
+✓ CORRECT: Length=48, Width=40, Height=23 → Longest=48 → 48 < 97 → Return ""
+✓ CORRECT: Length=96, Width=50, Height=45 → Longest=96 → 96 < 97 → Return ""
+✓ CORRECT: Length=96.9, Width=50, Height=45 → Longest=96.9 → 96.9 < 97 → Return ""
+✓ CORRECT: Length=97, Width=50, Height=45 → Longest=97 → 97 ≥ 97 → Return "97-144"
+✓ CORRECT: Length=100, Width=50, Height=45 → Longest=100 → 100 ≥ 97 → Return "97-144"
+✓ CORRECT: Length=8 ft, Width=6 ft, Height=4 ft → Convert: 96in, 72in, 48in → Longest=96 → 96 < 97 → Return ""
+✓ CORRECT: Length=10 ft, Width=5 ft, Height=4 ft → Convert: 120in, 60in, 48in → Longest=120 → 120 ≥ 97 → Return "97-144"
+✗ WRONG: Length=96 → Return "97-144" (NO! 96 < 97, must return "")
+✗ WRONG: Length=47.5 → Return "97-144" (NO! 47.5 < 97, must return "")
+
+**DOUBLE-CHECK BEFORE RETURNING:**
+Before you return ANY over length value, ask yourself:
+"Is the longest dimension I found actually 97 inches or more?"
+If the answer is NO → return ""
+If the answer is YES → return the appropriate range
 
 EXTRACTION RULE:
 - Return one of: "97-144", "145-192", "193-240", "241 or more", or ""
-- Return "" if under 97 inches OR dimensions not found
+- Return "" if longest dimension < 97 inches OR if dimensions not found
+- ALWAYS verify: Is longest dimension ≥ 97? If NO → return ""
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 13: PALLET COUNT**
 WHAT TO LOOK FOR:
@@ -466,7 +537,7 @@ EXTRACTION RULE:
 - Return numeric count
 - Return 0 if not found
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 14: DEBRIS REMOVAL SECTION**
 WHAT TO LOOK FOR:
@@ -478,7 +549,7 @@ EXTRACTION RULE:
 - Return true if debris section/checkbox exists
 - Return false if not present
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 15: CLIENT NAME**
 WHAT TO LOOK FOR:
@@ -489,53 +560,33 @@ EXTRACTION RULE:
 - Return the full client/shipper name as string
 - Return "" if not found
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 16: TIME-SPECIFIC DELIVERY**
-⚠️ CRITICAL RULE: The TIME WINDOW determines the charge, NOT handwritten notes
-- Even if someone wrote "TS" or "TIME SPECIFIC", you must check the actual times
-- If times don't match any category below, return "" even if "TS" is written
+⚠️ Look for handwritten "T.S", "TS", circled time indicators, or appointment requirements
 
-CALCULATION RULES (based on ACTUAL time window shown):
+WHAT TO LOOK FOR:
+- Handwritten "T.S" or "TS" (often circled)
+- "(DEL) APPOINTMENT DELIVERY Required"
+- Specific time windows in delivery instructions
+- Time-sensitive indicators
 
-**"AM Special"** - Window ≤ 4 hours AND ends by 12:00 PM (noon)
-  Examples that qualify:
-  - "8:00 AM - 10:00 AM" (2 hours, ends before noon) ✓
-  - "8:00 AM - 11:59 AM" (3h 59m, ends before noon) ✓
-  - "7:00 AM - 11:00 AM" (4 hours, ends before noon) ✓
-  
-  Examples that DO NOT qualify:
-  - "8:00 AM - 2:00 PM" (6 hours, too long) ✗
-  - "10:00 AM - 12:30 PM" (ends after noon) ✗
+**TIME WINDOW CLASSIFICATION:**
+- **Before 12:00 PM / Morning delivery** → "AM Special"
+- **2-hour window specified** → "2 Hours"
+- **15-minute window specified** → "15 Minutes"
 
-**"2 Hours"** - Window is EXACTLY 2 hours (can be any time of day)
-  Examples that qualify:
-  - "10:00 AM - 12:00 PM" (exactly 2 hours) ✓
-  - "1:00 PM - 3:00 PM" (exactly 2 hours) ✓
-  - "8:00 AM - 10:00 AM" (exactly 2 hours) ✓
-  
-  Examples that DO NOT qualify:
-  - "8:00 AM - 11:00 AM" (3 hours) ✗
-  - "1:00 PM - 2:00 PM" (1 hour) ✗
-
-**"15 Minutes"** - Window is 15 minutes or less
-  Examples that qualify:
-  - "2:00 PM - 2:15 PM" (exactly 15 minutes) ✓
-  - "10:30 AM - 10:45 AM" (exactly 15 minutes) ✓
-  - "9:00 AM - 9:10 AM" (10 minutes) ✓
-  
-**EDGE CASES:**
-- If handwritten "TS" exists but NO time window shown → "" (can't verify)
-- If time window is 3 hours, 4 hours, 5 hours (but not AM Special criteria) → "" (doesn't match any category)
-- If "Appointment Delivery Required" but no specific window → "" (no time constraint)
-- All-day windows like "8:00 AM - 5:00 PM" → "" (too broad)
+CRITICAL RULES:
+- "T.S" or "TS" notations indicate time-specific delivery (classify based on actual time window if visible)
+- Appointment delivery requirements may indicate time-specific needs
+- Look for circled or highlighted time information
 
 EXTRACTION RULE:
 - Return one of: "AM Special", "2 Hours", "15 Minutes", or ""
 - Base decision on ACTUAL time window, not "TS" notes
 - Return "" if no qualifying time window found
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **FIELD 17: DETENTION**
 WHAT TO LOOK FOR:
@@ -547,7 +598,7 @@ EXTRACTION RULE:
 - Return number of MINUTES (convert hours to minutes if needed)
 - Return 0 if not found
 
-══════════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════════
 
 **OUTPUT FORMAT:**
 Return ONLY a valid JSON object with these exact keys (no markdown, no explanations):
@@ -585,7 +636,18 @@ Return ONLY a valid JSON object with these exact keys (no markdown, no explanati
 - Pickup state and delivery state are critical for lane identification
 - Zone is ALWAYS the delivery zone
 - Delivery ZIP is ALWAYS from delivery address
-- Check both printed and handwritten areas for services`
+- Check both printed and handwritten areas for services`,
+          cache_control: { type: 'ephemeral' } // ✅ ENABLES PROMPT CACHING
+        }
+      ],
+      messages: [{
+        role: 'user',
+        content: [{
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: pageBase64 },
+        }, {
+          type: 'text',
+          text: 'Please extract all the BOL data fields according to the system instructions provided.'
         }]
       }]
     });
@@ -619,7 +681,7 @@ Return ONLY a valid JSON object with these exact keys (no markdown, no explanati
       extractedData.isFixedLane = true;
       extractedData.laneKey = laneKey;
       extractedData.fixedPrice = FIXED_PRICE_LANES[laneKey];
-      console.log(`  🛣️  Fixed price lane: ${laneKey} = $${FIXED_PRICE_LANES[laneKey]}`);
+      console.log(`  🛣️ Fixed price lane: ${laneKey} = $${FIXED_PRICE_LANES[laneKey]}`);
     } else {
       extractedData.isFixedLane = false;
       
@@ -629,11 +691,11 @@ Return ONLY a valid JSON object with these exact keys (no markdown, no explanati
         if (zipCode && ZIP_TO_ZONE[zipCode]) {
           extractedData.zone = ZIP_TO_ZONE[zipCode];
           extractedData.zoneSource = 'ZIP';
-          console.log(`  🗺️  Zone from ZIP ${zipCode}: ${extractedData.zone}`);
+          console.log(`  🗺️ Zone from ZIP ${zipCode}: ${extractedData.zone}`);
         } else {
           extractedData.zone = 'QUOTE';
           extractedData.zoneSource = 'UNKNOWN';
-          console.warn(`  ⚠️  No zone/ZIP match - requires quote`);
+          console.warn(`  ⚠️ No zone/ZIP match - requires quote`);
         }
       } else {
         extractedData.zoneSource = 'BOL';
@@ -667,16 +729,14 @@ app.post('/api/process-bol', async (req, res) => {
     const pages = await splitPdfPages(pdfBase64);
     const results = [];
     
-    // ⭐ NEW: Add rate limiting with delays
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i];
       
       try {
         console.log(`  ⏳ Processing page ${page.pageNumber}/${pages.length}...`);
         
-        // ⭐ NEW: Add delay before processing (except first page)
         if (i > 0) {
-          console.log(`  ⏸️  Waiting ${DELAY_BETWEEN_PAGES_MS}ms...`);
+          console.log(`  ⏸️ Waiting ${DELAY_BETWEEN_PAGES_MS}ms...`);
           await delay(DELAY_BETWEEN_PAGES_MS);
         }
         
@@ -721,5 +781,6 @@ app.listen(PORT, () => {
   console.log(`   ✓ Fixed lanes: GA→NJ ($2,000), CA→GA ($6,000), GA→CA ($3,600)`);
   console.log(`   ✓ Zone pricing with ZIP fallback`);
   console.log(`   ✓ Rate limiting: ${DELAY_BETWEEN_PAGES_MS}ms delay between pages`);
-  console.log(`   ✓ Image compression: ~60% token reduction\n`);
+  console.log(`   ✓ Prompt caching enabled (50% cost savings after first page)`);
+  console.log(`   ✓ PDF compression enabled (~20% size reduction)\n`);
 });

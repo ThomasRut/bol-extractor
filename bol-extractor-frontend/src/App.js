@@ -66,16 +66,16 @@ function App() {
 
   const calculateInsideDelivery = (applicableWeight) => {
     if (!applicableWeight) return 0;
-    const calculated = applicableWeight * 0.15;
-    return Math.max(20, Math.min(calculated, 150));
+    const calculated = applicableWeight * 0.004;
+    return Math.max(10, Math.min(calculated, 80));
   };
 
   const calculateOverLength = (overLengthCategory) => {
     const rates = {
-      '97-144': 25,
-      '145-192': 35,
-      '193-240': 50,
-      '241 or more': 80
+      '97-144': 12,
+      '145-192': 18,
+      '193-240': 24,
+      '241 or more': 30
     };
     return rates[overLengthCategory] || 0;
   };
@@ -269,26 +269,35 @@ function App() {
 
           if (data.results && data.results.length > 0) {
             data.results.forEach(pageResult => {
-              if (pageResult.success && pageResult.data) {
-                try {
-                  const cleanedText = pageResult.data.replace(/```json\n?|\n?```/g, '').trim();
-                  const parsedData = JSON.parse(cleanedText);
-                  
-                  allResults.push({
-                    ...parsedData,
-                    driver: fileObj.driverName,
-                    filename: fileObj.file.name,
-                    pageNumber: pageResult.pageNumber,
-                    isFixedLane: pageResult.isFixedLane || false,
-                    laneKey: pageResult.laneKey || '',
-                    fixedPrice: pageResult.fixedPrice || 0,
-                    zoneSource: pageResult.zoneSource || 'BOL'
-                  });
-                } catch (parseError) {
-                  console.error('Parse error:', parseError);
-                  errors.push(`${fileObj.file.name} (Page ${pageResult.pageNumber}): Failed to parse data`);
-                }
-              } else if (!pageResult.success) {
+              if (pageResult.success) {
+                allResults.push({
+                  pro: pageResult.pro,
+                  pickupState: pageResult.pickupState,
+                  deliveryState: pageResult.deliveryState,
+                  zone: pageResult.zone,
+                  deliveryZip: pageResult.deliveryZip,
+                  deliveryAddress: pageResult.deliveryAddress,
+                  weight: pageResult.weight || 0,
+                  volumeFt3: pageResult.volumeFt3 || 0,
+                  liftgate: pageResult.liftgate || "",
+                  inside: pageResult.inside || "",
+                  residential: pageResult.residential || "",
+                  overLength: pageResult.overLength || "",
+                  palletCount: pageResult.palletCount || 0,
+                  hasDebrisSection: pageResult.hasDebrisSection || false,
+                  clientName: pageResult.clientName || "",
+                  timeSpecific: pageResult.timeSpecific || "",
+                  detention: pageResult.detention || 0,
+                  isLakeshore: pageResult.isLakeshore || false,
+                  driver: fileObj.driverName,
+                  filename: fileObj.file.name,
+                  pageNumber: pageResult.pageNumber,
+                  isFixedLane: pageResult.isFixedLane || false,
+                  laneKey: pageResult.laneKey || '',
+                  fixedPrice: pageResult.fixedPrice || 0,
+                  zoneSource: pageResult.zoneSource || 'BOL'
+                });
+              } else {
                 errors.push(`${fileObj.file.name} (Page ${pageResult.pageNumber}): ${pageResult.error}`);
               }
             });
@@ -305,32 +314,31 @@ function App() {
       console.log('📊 Results after consolidation:', consolidatedResults.length);
 
       const calculatedResults = consolidatedResults.map(result => {
-        // ========== CHECK FOR FIXED PRICE LANE FIRST ==========
         if (result.isFixedLane && result.fixedPrice) {
           console.log(`🛣️ Fixed lane: ${result.laneKey} = ${result.fixedPrice}`);
           return {
             pro: result.pro,
             driver: result.driver,
-            zone: '',  // Blank for fixed lanes
+            zone: '',
             zoneSource: 'FIXED_LANE',
+            deliveryZip: result.deliveryZip,
             weight: result.weight?.toFixed(0) || '0',
             volumeFt3: result.volumeFt3?.toFixed(2) || '0.00',
-            chargeable: '',  // Blank for fixed lanes
+            chargeable: '',
             freight: result.fixedPrice.toFixed(2),
-            fuelSurcharge: '',  // Blank for fixed lanes
-            debrisRemoval: '',  // Blank for fixed lanes
+            fuelSurcharge: '',
+            debrisRemoval: '',
             liftgate: '',
             inside: '',
             overLength: '',
             residential: '',
             timeSpecific: '',
             detention: 0,
-            extras: '',  // Blank for fixed lanes
+            extras: '',
             total: result.fixedPrice.toFixed(2),
           };
         }
 
-        // ========== ZONE-BASED PRICING WITH ACCESSORIALS ==========
         const chargeableWeight = calculateChargeableWeight(result.volumeFt3);
         const applicableWeight = Math.max(result.weight || 0, chargeableWeight);
         
@@ -384,6 +392,9 @@ function App() {
       if (errors.length > 0) {
         setError(`Processed with errors:\n${errors.join('\n')}`);
       }
+
+      // ✅ AUTO-CLEAR: Remove uploaded files after successful processing
+      setFiles([]);
 
     } catch (error) {
       console.error('Processing error:', error);
@@ -453,32 +464,25 @@ function App() {
 
           {showSettings && (
             <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <h3 className="font-medium text-gray-900 mb-3">Configuration</h3>
-              <div className="space-y-3">
-                <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2">
-                    <span className="text-sm text-gray-700">Fuel Surcharge:</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.5"
-                      value={fuelSurchargePercent * 100}
-                      onChange={(e) => setFuelSurchargePercent(parseFloat(e.target.value) / 100)}
-                      className="w-20 px-3 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700">%</span>
+              <h3 className="font-semibold text-gray-900 mb-3">Configuration</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Fuel Surcharge (%)
                   </label>
-                  <button
-                    onClick={() => setFuelSurchargePercent(0.24)}
-                    className="text-sm text-blue-600 hover:text-blue-700"
-                  >
-                    Reset to 24%
-                  </button>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={fuelSurchargePercent * 100}
+                    onChange={(e) => setFuelSurchargePercent(parseFloat(e.target.value) / 100)}
+                    className="w-32 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="ml-2 text-sm text-gray-600">Current: {(fuelSurchargePercent * 100).toFixed(1)}%</span>
                 </div>
-                <div className="text-sm text-gray-600 border-t pt-3 mt-3">
-                  <p className="font-medium mb-1">Fixed Price Lanes:</p>
-                  <ul className="list-disc list-inside space-y-1">
+                
+                <div className="pt-3 border-t border-gray-200">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Fixed Price Lanes:</p>
+                  <ul className="text-sm text-gray-600 space-y-1 ml-4">
                     <li>GA → NJ: $2,000 (flat, no accessorials)</li>
                     <li>CA → GA: $6,000 (flat, no accessorials)</li>
                     <li>GA → CA: $3,600 (flat, no accessorials)</li>
