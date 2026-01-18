@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, Download, Copy, Loader2, AlertCircle, Settings, X } from 'lucide-react';
 
-// Price table for zone-based pricing
 const PRICE_TABLE = {
   'A': { '10000+': 0.0121, '5000+': 0.0129, '2000+': 0.0137, '1000+': 0.0144, min: 18.00, max: 160.00 },
   'B': { '10000+': 0.0132, '5000+': 0.0140, '2000+': 0.0147, '1000+': 0.0157, min: 20.00, max: 180.00 },
@@ -17,43 +15,607 @@ const PRICE_TABLE = {
   'L': { '10000+': 0.0313, '5000+': 0.0332, '2000+': 0.0352, '1000+': 0.0371, min: 46.00, max: 420.00 },
 };
 
+const TIME_SPECIFIC_CHARGES = {
+  'AM Special': { 'A-D': 23, 'E-L': 33 },
+  '2 Hours': { 'A-D': 38, 'E-L': 48 },
+  '15 Minutes': { 'A-D': 53, 'E-L': 63 }
+};
+
 function App() {
-  const [files, setFiles] = useState([]);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [fuelSurchargePercent, setFuelSurchargePercent] = useState(0.24);
+  const [dragging, setDragging] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [fuelSurchargePercent, setFuelSurchargePercent] = useState(0.24);
+  const [driverName, setDriverName] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState([]);
 
-  const handleFileChange = (e) => {
-    const selectedFiles = Array.from(e.target.files);
-    const fileObjects = selectedFiles.map(file => ({
-      file,
-      driverName: ''
-    }));
-    setFiles(prev => [...prev, ...fileObjects]);
-  };
-
-  const updateDriverName = (index, name) => {
-    setFiles(prev => prev.map((f, i) => i === index ? { ...f, driverName: name } : f));
-  };
-
-  const removeFile = (index) => {
-    setFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const calculateChargeableWeight = (volumeFt3) => {
-    if (!volumeFt3) return 0;
-    return (volumeFt3 * 1728) / 115;
-  };
-
-  const calculateFreight = (zone, applicableWeight) => {
-    const zoneRates = PRICE_TABLE[zone?.toUpperCase()];
-    if (!zoneRates) {
-      console.warn(`⚠️ Zone "${zone}" not found in price table. Freight requires manual quote.`);
-      return 'Quote Required';
+  const styles = `
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
     }
 
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+        'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+        sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      background: #f8f9fa;
+    }
+
+    .app-container {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo {
+      width: 40px;
+      height: 40px;
+      background: #3b82f6;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 20px;
+    }
+
+    .header-title h1 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #111827;
+      margin: 0;
+    }
+
+    .header-title p {
+      font-size: 12px;
+      color: #6b7280;
+      margin: 0;
+    }
+
+    .settings-btn {
+      background: white;
+      border: 1px solid #e5e7eb;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 14px;
+      color: #374151;
+      transition: background 0.2s;
+    }
+
+    .settings-btn:hover {
+      background: #f9fafb;
+    }
+
+    .main-content {
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 48px 24px;
+      flex: 1;
+    }
+
+    .page-header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .page-header h2 {
+      font-size: 32px;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 12px;
+    }
+
+    .page-header p {
+      font-size: 16px;
+      color: #6b7280;
+      max-width: 600px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    .driver-input-section {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+
+    .driver-input-section label {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 8px;
+    }
+
+    .driver-input-section input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+
+    .driver-input-section input:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .driver-input-section p {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 6px;
+    }
+
+    .upload-card {
+      background: white;
+      border-radius: 12px;
+      padding: 48px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      margin-bottom: 32px;
+    }
+
+    .upload-zone {
+      border: 2px dashed #d1d5db;
+      border-radius: 8px;
+      padding: 64px 32px;
+      text-align: center;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+
+    .upload-zone:hover {
+      border-color: #3b82f6;
+      background: #f9fafb;
+    }
+
+    .upload-zone.dragging {
+      border-color: #3b82f6;
+      background: #eff6ff;
+    }
+
+    .upload-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 24px;
+      background: #eff6ff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .upload-icon svg {
+      width: 32px;
+      height: 32px;
+      color: #3b82f6;
+    }
+
+    .upload-zone h3 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 8px;
+    }
+
+    .upload-zone > p {
+      font-size: 14px;
+      color: #6b7280;
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+
+    .select-files-btn {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.2s;
+    }
+
+    .select-files-btn:hover {
+      background: #2563eb;
+    }
+
+    .file-size-hint {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 16px;
+    }
+
+    .selected-files-section {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      margin-bottom: 24px;
+    }
+
+    .selected-files-section h4 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 16px;
+    }
+
+    .file-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .file-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+    }
+
+    .file-item svg {
+      width: 20px;
+      height: 20px;
+      color: #3b82f6;
+      flex-shrink: 0;
+    }
+
+    .file-item span {
+      flex: 1;
+      font-size: 14px;
+      color: #374151;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .remove-file-btn {
+      background: none;
+      border: none;
+      color: #ef4444;
+      cursor: pointer;
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      transition: background 0.2s;
+    }
+
+    .remove-file-btn:hover {
+      background: #fee2e2;
+    }
+
+    .process-btn {
+      width: 100%;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .process-btn:hover:not(:disabled) {
+      background: #2563eb;
+    }
+
+    .process-btn:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+
+    .empty-state-card {
+      background: white;
+      border-radius: 12px;
+      padding: 64px 32px;
+      text-align: center;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .empty-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 24px;
+      background: #f3f4f6;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .empty-icon svg {
+      width: 32px;
+      height: 32px;
+      color: #9ca3af;
+    }
+
+    .empty-state-card h3 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 8px;
+    }
+
+    .empty-state-card p {
+      font-size: 14px;
+      color: #6b7280;
+    }
+
+    .loading-container {
+      text-align: center;
+      padding: 48px;
+    }
+
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 4px solid #e5e7eb;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .results-container {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .results-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .results-header h3 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #111827;
+    }
+
+    .export-buttons {
+      display: flex;
+      gap: 8px;
+    }
+
+    .copy-btn {
+      background: white;
+      border: 1px solid #e5e7eb;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      color: #374151;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .copy-btn:hover {
+      background: #f9fafb;
+    }
+
+    .export-btn {
+      background: white;
+      border: 1px solid #e5e7eb;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      color: #374151;
+      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .export-btn:hover {
+      background: #f9fafb;
+    }
+
+    .table-wrapper {
+      overflow-x: auto;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th {
+      background: #f9fafb;
+      padding: 12px;
+      text-align: left;
+      font-weight: 600;
+      color: #374151;
+      border-bottom: 1px solid #e5e7eb;
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 12px;
+      border-bottom: 1px solid #f3f4f6;
+      color: #111827;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr:hover {
+      background: #f9fafb;
+    }
+
+    .settings-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .settings-content {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 500px;
+      width: 90%;
+    }
+
+    .settings-content h3 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 16px;
+    }
+
+    .setting-item {
+      margin-bottom: 16px;
+    }
+
+    .setting-item label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 8px;
+    }
+
+    .setting-item input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    .settings-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 24px;
+    }
+
+    .cancel-btn {
+      background: white;
+      border: 1px solid #e5e7eb;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      color: #374151;
+    }
+
+    .save-btn {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+  `;
+
+  const calculateCharges = (data) => {
+    const volume = data.volumeFt3 || data.volume || 0;
+    const weight = data.weight || 0;
+    
+    const zone = data.zone?.toUpperCase();
+    const zoneRates = PRICE_TABLE[zone];
+    
+    if (!zoneRates) {
+      console.warn(`⚠️ Zone "${zone}" not found in price table. Freight requires manual quote.`);
+      return {
+        pro: data.pro,
+        driver: driverName,
+        zone: zone || '?',
+        zoneSource: data.zoneSource,
+        deliveryZip: data.deliveryZip,
+        weight: weight.toFixed(0),
+        volumeFt3: volume.toFixed(2),
+        chargeable: '0',
+        freight: 'Quote Required',
+        fuelSurcharge: 'Quote Required',
+        debrisRemoval: '0.00',
+        liftgate: data.liftgate === "Yes" ? "Yes" : "",
+        inside: data.inside === "Yes" ? "Yes" : "",
+        overLength: data.overLength || "",
+        residential: data.residential === "Yes" ? "Yes" : "",
+        timeSpecific: data.timeSpecific || "",
+        detention: data.detention || 0,
+        extras: '0.00',
+        total: 'Quote Required'
+      };
+    }
+
+    // Calculate chargeable weight
+    const chargeableWeight = (volume * 1728) / 115;
+    const applicableWeight = Math.max(weight, chargeableWeight);
+
+    // Calculate freight
     let rate;
     if (applicableWeight >= 10000) rate = zoneRates['10000+'];
     else if (applicableWeight >= 5000) rate = zoneRates['5000+'];
@@ -61,596 +623,516 @@ function App() {
     else rate = zoneRates['1000+'];
 
     let freight = applicableWeight * rate;
-    return Math.max(zoneRates.min, Math.min(freight, zoneRates.max));
-  };
+    freight = Math.max(zoneRates.min, Math.min(freight, zoneRates.max));
 
-  const calculateInsideDelivery = (applicableWeight) => {
-    if (!applicableWeight) return 0;
-    const calculated = applicableWeight * 0.004;
-    return Math.max(10, Math.min(calculated, 80));
-  };
+    // Calculate fuel surcharge
+    const fuelSurcharge = freight * fuelSurchargePercent;
 
-  const calculateOverLength = (overLengthCategory) => {
-    const rates = {
-      '97-144': 12,
-      '145-192': 18,
-      '193-240': 24,
-      '241 or more': 30
-    };
-    return rates[overLengthCategory] || 0;
-  };
+    // Calculate debris removal
+    const debrisRemoval = (data.hasDebrisSection || data.isLakeshore) 
+      ? (data.palletCount || 0) * 3 
+      : 0;
 
-  const calculateTimeSpecific = (zone, timeType) => {
-    if (!timeType || timeType === "") return 0;
-    
+    // Calculate liftgate
+    const liftgateCharge = data.liftgate === 'Yes' ? 20 : 0;
+
+    // Calculate inside delivery
+    const insideCharge = data.inside === 'Yes' 
+      ? Math.max(10, Math.min(applicableWeight * 0.004, 80))
+      : 0;
+
+    // Calculate over length
+    let overLengthCharge = 0;
+    if (data.overLength === '97-144') overLengthCharge = 12;
+    else if (data.overLength === '145-192') overLengthCharge = 18;
+    else if (data.overLength === '193-240') overLengthCharge = 24;
+    else if (data.overLength === '241 or more') overLengthCharge = 30;
+
+    // Calculate residential
+    const residentialCharge = data.residential === 'Yes' ? 15 : 0;
+
+    // Calculate time specific
     const earlyZones = ['A', 'B', 'C', 'D'];
-    const isEarlyZone = earlyZones.includes(zone?.toUpperCase());
+    const isEarlyZone = earlyZones.includes(zone);
+    let timeSpecificCharge = 0;
     
-    if (timeType === 'AM Special') return isEarlyZone ? 23 : 33;
-    if (timeType === '2 Hours') return isEarlyZone ? 38 : 48;
-    if (timeType === '15 Minutes') return isEarlyZone ? 53 : 63;
-    
-    return 0;
-  };
-
-  const calculateDetention = (minutes) => {
-    if (!minutes || minutes <= 30) return 0;
-    const billableMinutes = minutes - 30;
-    return (billableMinutes / 60) * 36;
-  };
-
-  const calculateDebrisRemoval = (palletCount, hasDebrisSection, isLakeshore) => {
-    if (!palletCount) return 0;
-    if (hasDebrisSection || isLakeshore) {
-      return palletCount * 3;
+    if (data.timeSpecific) {
+      if (data.timeSpecific === 'AM Special') timeSpecificCharge = isEarlyZone ? 23 : 33;
+      else if (data.timeSpecific === '2 Hours') timeSpecificCharge = isEarlyZone ? 38 : 48;
+      else if (data.timeSpecific === '15 Minutes') timeSpecificCharge = isEarlyZone ? 53 : 63;
     }
-    return 0;
-  };
 
-  const consolidateMultiPageBOLs = (processedResults) => {
-    const grouped = {};
+    // Calculate detention
+    const detentionCharge = data.detention > 30 
+      ? Math.ceil((data.detention - 30) / 60) * 36 
+      : 0;
 
-    const normalizeAddress = (addr) => {
-      if (!addr) return '';
-      
-      let normalized = addr
-        .toLowerCase()
-        .replace(/\s+/g, ' ')
-        .replace(/\./g, '')
-        .replace(/,/g, '')
-        .replace(/\brd\b/g, 'road')
-        .replace(/\bst\b/g, 'street')
-        .replace(/\bave\b/g, 'avenue')
-        .replace(/\bdr\b/g, 'drive')
-        .replace(/\bln\b/g, 'lane')
-        .replace(/\bblvd\b/g, 'boulevard')
-        .replace(/\bct\b/g, 'court')
-        .replace(/\bpkwy\b/g, 'parkway')
-        .replace(/\bpl\b/g, 'place')
-        .replace(/\bcir\b/g, 'circle')
-        .replace(/\bste\b/g, 'suite')
-        .replace(/\bapt\b/g, 'apartment')
-        .replace(/\s+/g, ' ')
-        .trim();
-      
-      normalized = normalized
-        .replace(/\bnortheast\b/g, '')
-        .replace(/\bnorthwest\b/g, '')
-        .replace(/\bsoutheast\b/g, '')
-        .replace(/\bsouthwest\b/g, '')
-        .replace(/\bnorth\b/g, '')
-        .replace(/\bsouth\b/g, '')
-        .replace(/\beast\b/g, '')
-        .replace(/\bwest\b/g, '')
-        .replace(/\bne\b/g, '')
-        .replace(/\bnw\b/g, '')
-        .replace(/\bse\b/g, '')
-        .replace(/\bsw\b/g, '')
-        .replace(/\bn\b/g, '')
-        .replace(/\bs\b/g, '')
-        .replace(/\be\b/g, '')
-        .replace(/\bw\b/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-      
-      return normalized;
+    // Calculate extras
+    const extras = debrisRemoval + liftgateCharge + insideCharge + overLengthCharge + 
+                  residentialCharge + timeSpecificCharge + detentionCharge;
+
+    // Calculate total
+    const total = freight + fuelSurcharge + extras;
+
+    return {
+      pro: data.pro || 'N/A',
+      driver: driverName,
+      zone: zone || '?',
+      zoneSource: data.zoneSource,
+      deliveryZip: data.deliveryZip,
+      weight: weight.toFixed(0),
+      volumeFt3: volume.toFixed(2),
+      chargeable: chargeableWeight.toFixed(0),
+      freight: freight.toFixed(2),
+      fuelSurcharge: fuelSurcharge.toFixed(2),
+      debrisRemoval: debrisRemoval.toFixed(2),
+      liftgate: data.liftgate === 'Yes' ? 'Yes' : '',
+      inside: data.inside === 'Yes' ? 'Yes' : '',
+      overLength: data.overLength || '',
+      residential: data.residential === 'Yes' ? 'Yes' : '',
+      timeSpecific: data.timeSpecific || '',
+      detention: data.detention || 0,
+      extras: extras.toFixed(2),
+      total: total.toFixed(2)
     };
-
-    processedResults.forEach(result => {
-      const normalizedAddress = normalizeAddress(result.deliveryAddress);
-      const groupKey = normalizedAddress;
-      
-      if (!groupKey || groupKey === '') {
-        const uniqueKey = `${result.pro}-${Math.random()}`;
-        grouped[uniqueKey] = {
-          ...result,
-          pages: [result],
-          isMultiPage: false,
-          originalPro: result.pro,
-          hasDebrisSection: result.hasDebrisSection,
-          isLakeshore: result.isLakeshore,
-        };
-        return;
-      }
-      
-      if (!grouped[groupKey]) {
-        grouped[groupKey] = {
-          ...result,
-          pages: [result],
-          isMultiPage: false,
-          originalPro: result.pro,
-          hasDebrisSection: result.hasDebrisSection,
-          isLakeshore: result.isLakeshore,
-        };
-      } else {
-        grouped[groupKey].isMultiPage = true;
-        grouped[groupKey].pages.push(result);
-        
-        grouped[groupKey].weight = (grouped[groupKey].weight || 0) + (result.weight || 0);
-        grouped[groupKey].volumeFt3 = (grouped[groupKey].volumeFt3 || 0) + (result.volumeFt3 || 0);
-        
-        if (result.overLength && result.overLength !== "") {
-          const ranges = ["97-144", "145-192", "193-240", "241 or more"];
-          const currentIndex = ranges.indexOf(grouped[groupKey].overLength || "");
-          const newIndex = ranges.indexOf(result.overLength);
-          if (currentIndex === -1 || newIndex > currentIndex) {
-            grouped[groupKey].overLength = result.overLength;
-          }
-        }
-        
-        grouped[groupKey].palletCount = (grouped[groupKey].palletCount || 0) + (result.palletCount || 0);
-        
-        if (result.liftgate === "Yes") grouped[groupKey].liftgate = "Yes";
-        if (result.inside === "Yes") grouped[groupKey].inside = "Yes";
-        if (result.residential === "Yes") grouped[groupKey].residential = "Yes";
-        
-        if (result.hasDebrisSection) grouped[groupKey].hasDebrisSection = true;
-        if (result.isLakeshore) grouped[groupKey].isLakeshore = true;
-        
-        if (result.timeSpecific && result.timeSpecific !== "") {
-          if (!grouped[groupKey].timeSpecific || grouped[groupKey].timeSpecific === "") {
-            grouped[groupKey].timeSpecific = result.timeSpecific;
-          } else {
-            const priority = { "15 Minutes": 3, "AM Special": 2, "2 Hours": 1 };
-            if (priority[result.timeSpecific] > priority[grouped[groupKey].timeSpecific]) {
-              grouped[groupKey].timeSpecific = result.timeSpecific;
-            }
-          }
-        }
-        
-        if (result.detention > 0) {
-          grouped[groupKey].detention = (grouped[groupKey].detention || 0) + result.detention;
-        }
-      }
-    });
-
-    return Object.values(grouped);
   };
 
-  const processPDFs = async () => {
-    if (files.length === 0) return;
+  const handleFileSelect = async (e) => {
+    const files = Array.from(e.target.files);
+    setSelectedFiles(files);
+    e.target.value = '';
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    setDragging(false);
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
+    setSelectedFiles(files);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setDragging(false);
+  };
+
+  const processFiles = async () => {
+    if (selectedFiles.length === 0) {
+      alert('Please select at least one PDF file.');
+      return;
+    }
+
+    if (!driverName.trim()) {
+      alert('Please enter the driver name before processing files.');
+      return;
+    }
 
     setLoading(true);
-    setError('');
-    setResults([]);
-
-    const allResults = [];
-    const errors = [];
-
+    
     try {
-      for (const fileObj of files) {
-        try {
-          console.log(`\n📄 Processing: ${fileObj.file.name}`);
-          
-          const reader = new FileReader();
-          const base64Promise = new Promise((resolve, reject) => {
-            reader.onload = () => resolve(reader.result.split(',')[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(fileObj.file);
-          });
+      const allResults = [];
+      
+      for (const file of selectedFiles) {
+        console.log(`\n📄 Processing: ${file.name}`);
+        
+        const reader = new FileReader();
+        const base64Promise = new Promise((resolve, reject) => {
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
 
-          const pdfBase64 = await base64Promise;
+        const pdfBase64 = await base64Promise;
 
-          const response = await fetch('http://localhost:3001/api/process-bol', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              pdfBase64,
-              filename: fileObj.file.name
-            })
-          });
+        const response = await fetch('http://localhost:3001/api/process-bol', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pdfBase64,
+            filename: file.name
+          })
+        });
 
-          if (!response.ok) {
-            throw new Error(`Server returned ${response.status}`);
-          }
+        if (!response.ok) {
+          throw new Error(`Server error: ${response.status} for file ${file.name}`);
+        }
 
-          const data = await response.json();
-          console.log('📊 Response:', data);
-
-          if (data.results && data.results.length > 0) {
-            data.results.forEach(pageResult => {
-              if (pageResult.success) {
-                allResults.push({
-                  pro: pageResult.pro,
-                  pickupState: pageResult.pickupState,
-                  deliveryState: pageResult.deliveryState,
-                  zone: pageResult.zone,
-                  deliveryZip: pageResult.deliveryZip,
-                  deliveryAddress: pageResult.deliveryAddress,
-                  weight: pageResult.weight || 0,
-                  volumeFt3: pageResult.volumeFt3 || 0,
-                  liftgate: pageResult.liftgate || "",
-                  inside: pageResult.inside || "",
-                  residential: pageResult.residential || "",
-                  overLength: pageResult.overLength || "",
-                  palletCount: pageResult.palletCount || 0,
-                  hasDebrisSection: pageResult.hasDebrisSection || false,
-                  clientName: pageResult.clientName || "",
-                  timeSpecific: pageResult.timeSpecific || "",
-                  detention: pageResult.detention || 0,
-                  isLakeshore: pageResult.isLakeshore || false,
-                  driver: fileObj.driverName,
-                  filename: fileObj.file.name,
-                  pageNumber: pageResult.pageNumber,
-                  isFixedLane: pageResult.isFixedLane || false,
-                  laneKey: pageResult.laneKey || '',
-                  fixedPrice: pageResult.fixedPrice || 0,
-                  zoneSource: pageResult.zoneSource || 'BOL'
-                });
-              } else {
-                errors.push(`${fileObj.file.name} (Page ${pageResult.pageNumber}): ${pageResult.error}`);
-              }
+        const data = await response.json();
+        console.log('📊 Server response:', data);
+        
+        if (data.results && data.results.length > 0) {
+          data.results.forEach((result, i) => {
+            console.log(`  Page ${i + 1}:`, {
+              pro: result.pro,
+              weight: result.weight,
+              volumeFt3: result.volumeFt3,
+              zone: result.zone,
+              liftgate: result.liftgate,
+              inside: result.inside,
+              residential: result.residential,
+              timeSpecific: result.timeSpecific
             });
-          }
-        } catch (fileError) {
-          console.error(`Error processing ${fileObj.file.name}:`, fileError);
-          errors.push(`${fileObj.file.name}: ${fileError.message}`);
+          });
+          
+          allResults.push(...data.results);
         }
       }
 
-      console.log('\n📊 Total results before consolidation:', allResults.length);
-      
-      const consolidatedResults = consolidateMultiPageBOLs(allResults);
-      console.log('📊 Results after consolidation:', consolidatedResults.length);
+      console.log('📋 All extracted results:', allResults);
 
-      const calculatedResults = consolidatedResults.map(result => {
-        if (result.isFixedLane && result.fixedPrice) {
-          console.log(`🛣️ Fixed lane: ${result.laneKey} = ${result.fixedPrice}`);
-          return {
-            pro: result.pro,
-            driver: result.driver,
-            zone: '',
-            zoneSource: 'FIXED_LANE',
-            deliveryZip: result.deliveryZip,
-            weight: result.weight?.toFixed(0) || '0',
-            volumeFt3: result.volumeFt3?.toFixed(2) || '0.00',
-            chargeable: '',
-            freight: result.fixedPrice.toFixed(2),
-            fuelSurcharge: '',
-            debrisRemoval: '',
-            liftgate: '',
-            inside: '',
-            overLength: '',
-            residential: '',
-            timeSpecific: '',
-            detention: 0,
-            extras: '',
-            total: result.fixedPrice.toFixed(2),
-          };
-        }
-
-        const chargeableWeight = calculateChargeableWeight(result.volumeFt3);
-        const applicableWeight = Math.max(result.weight || 0, chargeableWeight);
-        
-        const freight = calculateFreight(result.zone, applicableWeight);
-        const fuelSurcharge = freight === 'Quote Required' ? 'Quote Required' : freight * fuelSurchargePercent;
-        
-        const debrisRemoval = calculateDebrisRemoval(
-          result.palletCount,
-          result.hasDebrisSection,
-          result.isLakeshore
-        );
-        
-        const liftgateCharge = result.liftgate === "Yes" ? 20 : 0;
-        const insideCharge = result.inside === "Yes" ? calculateInsideDelivery(applicableWeight) : 0;
-        const overLengthCharge = calculateOverLength(result.overLength);
-        const residentialCharge = result.residential === "Yes" ? 15 : 0;
-        const timeSpecificCharge = calculateTimeSpecific(result.zone, result.timeSpecific);
-        const detentionCharge = calculateDetention(result.detention);
-
-        const extras = debrisRemoval + liftgateCharge + insideCharge + overLengthCharge + 
-                      residentialCharge + timeSpecificCharge + detentionCharge;
-
-        const total = freight === 'Quote Required' ? 'Quote Required' : 
-                     freight + fuelSurcharge + extras;
-
+      const calculatedResults = allResults.map(result => {
+        const calculated = calculateCharges(result);
+        console.log('💰 Calculated:', {
+          pro: calculated.pro,
+          weight: calculated.weight,
+          volume: calculated.volume,
+          chargeableWeight: calculated.chargeableWeight,
+          freight: calculated.freight
+        });
         return {
-          pro: result.pro,
-          driver: result.driver,
-          zone: result.zone || '?',
-          zoneSource: result.zoneSource,
-          deliveryZip: result.deliveryZip,
-          weight: result.weight?.toFixed(0) || '0',
-          volumeFt3: result.volumeFt3?.toFixed(2) || '0.00',
-          chargeable: chargeableWeight.toFixed(0),
-          freight: freight === 'Quote Required' ? freight : freight.toFixed(2),
-          fuelSurcharge: fuelSurcharge === 'Quote Required' ? fuelSurcharge : fuelSurcharge.toFixed(2),
-          debrisRemoval: debrisRemoval.toFixed(2),
-          liftgate: result.liftgate === "Yes" ? "Yes" : "",
-          inside: result.inside === "Yes" ? "Yes" : "",
-          overLength: result.overLength || "",
-          residential: result.residential === "Yes" ? "Yes" : "",
-          timeSpecific: result.timeSpecific || "",
-          detention: result.detention || 0,
-          extras: extras.toFixed(2),
-          total: total === 'Quote Required' ? total : total.toFixed(2),
+          ...calculated,
+          filename: result.filename,
+          pageNumber: result.pageNumber
         };
       });
-
+      
       setResults(calculatedResults);
-
-      if (errors.length > 0) {
-        setError(`Processed with errors:\n${errors.join('\n')}`);
-      }
-
-      // ✅ AUTO-CLEAR: Remove uploaded files after successful processing
-      setFiles([]);
-
+      
     } catch (error) {
-      console.error('Processing error:', error);
-      setError(error.message || 'Failed to process files');
+      console.error('❌ Error processing files:', error);
+      alert(`Error processing files: ${error.message}\n\nPlease check:\n- Server is running on port 3001\n- Files are valid PDFs\n- Driver name is entered`);
     } finally {
       setLoading(false);
     }
   };
 
-  const copyToClipboard = () => {
-    const headers = ['Job', 'Driver', 'Zone', 'Weight', 'Volume', 'Chargeable', 'Freight', 'Fuel', 
-                    'Debris', 'Lift', 'Inside', 'Over', 'Res', 'Time', 'Det', 'Extras', 'Total'];
+  const exportToCSV = () => {
+    const headers = ['PRO', 'Driver', 'Zone', 'Weight', 'Volume', 'Chargeable', 'Freight', 'Fuel',
+                     'Debris R', 'Liftgate', 'Inside', 'Over', 'Residential', 'Time', 'Detention', 'Extras', 'Total'];
     
     const rows = results.map(r => [
-      r.pro, r.driver, r.zone, r.weight, r.volumeFt3, r.chargeable,
-      r.freight === 'Quote Required' ? r.freight : (r.freight ? `${r.freight}` : ''),
-      r.fuelSurcharge === 'Quote Required' ? r.fuelSurcharge : (r.fuelSurcharge ? `${r.fuelSurcharge}` : ''),
-      r.debrisRemoval ? `${r.debrisRemoval}` : '', r.liftgate, r.inside, r.overLength, r.residential,
-      r.timeSpecific, r.detention > 0 ? `${r.detention} min` : '', r.extras ? `${r.extras}` : '',
-      r.total === 'Quote Required' ? r.total : `${r.total}`
+      r.pro, r.driver, r.zone, r.weight, r.volume, r.chargeableWeight,
+      r.freight, r.fuelSurcharge, r.debrisRemoval, r.liftgate, r.inside,
+      r.overLength, r.residential, r.timeSpecific || '', r.detention, '', r.total
     ]);
 
-    const tableText = [headers, ...rows].map(row => row.join('\t')).join('\n');
-    navigator.clipboard.writeText(tableText);
-    alert('Table copied to clipboard!');
-  };
-
-  const downloadCSV = () => {
-    const headers = ['Job', 'Driver', 'Zone', 'Zone Source', 'Delivery ZIP', 'Weight', 'Volume', 'Chargeable', 
-                    'Freight', 'Fuel', 'Debris', 'Lift', 'Inside', 'Over', 'Res', 'Time', 'Det', 'Extras', 'Total'];
-    
-    const rows = results.map(r => [
-      r.pro, r.driver, r.zone, r.zoneSource, r.deliveryZip, r.weight, r.volumeFt3, r.chargeable,
-      r.freight, r.fuelSurcharge, r.debrisRemoval, r.liftgate, r.inside, r.overLength,
-      r.residential, r.timeSpecific, r.detention, r.extras, r.total
-    ]);
-
-    const csv = [headers, ...rows].map(row => 
-      row.map(cell => `"${cell}"`).join(',')
-    ).join('\n');
-
+    const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `bol_extract_${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `bol-results-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copyToClipboard = () => {
+    // NO HEADERS - just data rows for pasting into Excel
+    // Column order: PRO, Driver, Zone, Weight, Volume, Chargeable, Freight, Fuel, Debris R, Liftgate, Inside, Over, Residential, Time, Detention, Extras, Total
+    const rows = results.map(r => [
+      r.pro,                    // PRO
+      r.driver,                 // Driver
+      r.zone,                   // Zone
+      r.weight,                 // Weight
+      r.volume,                 // Volume
+      r.chargeableWeight,       // Chargeable
+      r.freight,                // Freight
+      r.fuelSurcharge,          // Fuel
+      r.debrisRemoval,          // Debris R
+      r.liftgate,               // Liftgate
+      r.inside,                 // Inside
+      r.overLength || '',       // Over
+      r.residential,            // Residential
+      r.timeSpecific || '',     // Time
+      r.detention,              // Detention
+      '',                       // Extras
+      r.total                   // Total
+    ]);
+
+    // Tab-separated for Excel
+    const tableText = rows.map(row => row.join('\t')).join('\n');
+    
+    navigator.clipboard.writeText(tableText).then(() => {
+      const btn = document.querySelector('.copy-btn');
+      const originalText = btn.innerHTML;
+      btn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+        Copied!
+      `;
+      btn.style.background = '#10b981';
+      btn.style.color = 'white';
+      btn.style.border = '1px solid #10b981';
+      
+      setTimeout(() => {
+        btn.innerHTML = originalText;
+        btn.style.background = 'white';
+        btn.style.color = '#374151';
+        btn.style.border = '1px solid #e5e7eb';
+      }, 2000);
+    }).catch(err => {
+      alert('Failed to copy to clipboard. Please try again.');
+      console.error('Copy error:', err);
+    });
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="bg-white rounded-lg shadow-lg p-8 mb-6">
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">BOL Data Extractor</h1>
-              <p className="text-gray-600 mt-1">Automated freight calculation system with lane pricing</p>
+    <>
+      <style>{styles}</style>
+      <div className="app-container">
+        <header className="header">
+          <div className="header-left">
+            <div className="logo">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+              </svg>
             </div>
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <Settings className="w-5 h-5" />
-              Settings
-            </button>
+            <div className="header-title">
+              <h1>BOL Extractor</h1>
+              <p>Automated Data Processing</p>
+            </div>
+          </div>
+          <button className="settings-btn" onClick={() => setShowSettings(!showSettings)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M12 1v6m0 6v6M7.05 7.05l4.95 4.95m0 0l4.95 4.95m-4.95-4.95l4.95-4.95m-4.95 4.95L7.05 16.95"/>
+            </svg>
+            Settings
+          </button>
+        </header>
+
+        <main className="main-content">
+          <div className="page-header">
+            <h2>BOL Data Extractor</h2>
+            <p>
+              Automated Bill of Lading data extraction powered by AI. Upload your PDFs and get 
+              structured data in seconds.
+            </p>
           </div>
 
-          {showSettings && (
-            <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <h3 className="font-semibold text-gray-900 mb-3">Configuration</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Fuel Surcharge (%)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={fuelSurchargePercent * 100}
-                    onChange={(e) => setFuelSurchargePercent(parseFloat(e.target.value) / 100)}
-                    className="w-32 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <span className="ml-2 text-sm text-gray-600">Current: {(fuelSurchargePercent * 100).toFixed(1)}%</span>
-                </div>
-                
-                <div className="pt-3 border-t border-gray-200">
-                  <p className="text-sm font-medium text-gray-700 mb-2">Fixed Price Lanes:</p>
-                  <ul className="text-sm text-gray-600 space-y-1 ml-4">
-                    <li>GA → NJ: $2,000 (flat, no accessorials)</li>
-                    <li>CA → GA: $6,000 (flat, no accessorials)</li>
-                    <li>GA → CA: $3,600 (flat, no accessorials)</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+          <div className="driver-input-section">
+            <label htmlFor="driverName">
+              Driver Name <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <input
+              id="driverName"
+              type="text"
+              placeholder="Enter driver's name (e.g., John Smith)"
+              value={driverName}
+              onChange={(e) => setDriverName(e.target.value)}
+            />
+            <p>This name will be applied to all BOLs uploaded in this batch</p>
+          </div>
 
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <label className="block">
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 transition-colors cursor-pointer">
-              <Upload className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-              <p className="text-lg font-medium text-gray-700 mb-2">Upload BOL PDFs</p>
-              <p className="text-sm text-gray-500">Click to select multiple PDF files</p>
+          <div className="upload-card">
+            <div 
+              className={`upload-zone ${dragging ? 'dragging' : ''}`}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+            >
+              <div className="upload-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+              </div>
+              <h3>Upload BOL PDFs</h3>
+              <p>
+                Drag and drop your Bill of Lading files here, or click to browse.<br/>
+                Multi-page PDFs are automatically split and processed.
+              </p>
+              <button 
+                className="select-files-btn" 
+                onClick={() => document.getElementById('fileInput').click()}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Select Files
+              </button>
+              <p className="file-size-hint">Supports PDF files up to 10MB each</p>
               <input
+                id="fileInput"
                 type="file"
                 multiple
                 accept=".pdf"
-                onChange={handleFileChange}
-                className="hidden"
+                onChange={handleFileSelect}
+                style={{ display: 'none' }}
               />
             </div>
-          </label>
+          </div>
 
-          {files.length > 0 && (
-            <div className="mt-6">
-              <div className="flex justify-between items-center mb-3">
-                <p className="font-medium text-gray-700">Uploaded Files ({files.length}):</p>
-                <button
-                  onClick={() => setFiles([])}
-                  className="text-sm text-red-600 hover:text-red-700"
-                >
-                  Clear All
-                </button>
-              </div>
-              <div className="space-y-3 max-h-96 overflow-y-auto">
-                {files.map((fileObj, i) => (
-                  <div key={i} className="flex items-center gap-3 bg-gray-50 px-4 py-3 rounded-lg border border-gray-200">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-700 mb-2 truncate" title={fileObj.file.name}>
-                        📄 {fileObj.file.name}
-                      </p>
-                      <input
-                        type="text"
-                        placeholder="Enter driver name (e.g., John Smith)"
-                        value={fileObj.driverName}
-                        onChange={(e) => updateDriverName(i, e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                      />
-                    </div>
-                    <button
-                      onClick={() => removeFile(i)}
-                      className="flex-shrink-0 p-2 hover:bg-red-100 rounded-lg transition-colors group"
-                      title="Remove this file"
+          {selectedFiles.length > 0 && !loading && (
+            <div className="selected-files-section">
+              <h4>Selected Files ({selectedFiles.length})</h4>
+              <div className="file-list">
+                {selectedFiles.map((file, index) => (
+                  <div key={index} className="file-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    <span title={file.name}>{file.name}</span>
+                    <button 
+                      className="remove-file-btn"
+                      onClick={() => setSelectedFiles(selectedFiles.filter((_, i) => i !== index))}
+                      title="Remove file"
                     >
-                      <X className="w-5 h-5 text-gray-500 group-hover:text-red-600" />
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                      </svg>
                     </button>
                   </div>
                 ))}
               </div>
+              <button 
+                className="process-btn"
+                onClick={processFiles}
+                disabled={!driverName.trim()}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="9 11 12 14 22 4"/>
+                  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                </svg>
+                Process {selectedFiles.length} File{selectedFiles.length !== 1 ? 's' : ''}
+              </button>
             </div>
           )}
 
-          <button
-            onClick={processPDFs}
-            disabled={loading || files.length === 0}
-            className="mt-6 w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-medium py-3 px-6 rounded-lg transition-colors flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Processing {files.length} file{files.length !== 1 ? 's' : ''}...
-              </>
-            ) : (
-              `Extract & Calculate (${files.length} file${files.length !== 1 ? 's' : ''})`
-            )}
-          </button>
-        </div>
-
-        {error && (
-          <div className={`${results.length > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200'} border rounded-lg p-4 mb-6`}>
-            <div className="flex items-start gap-3">
-              <AlertCircle className={`w-5 h-5 ${results.length > 0 ? 'text-yellow-600' : 'text-red-600'} flex-shrink-0 mt-0.5`} />
-              <p className={`whitespace-pre-line ${results.length > 0 ? 'text-yellow-800' : 'text-red-800'}`}>{error}</p>
+          {loading && (
+            <div className="loading-container">
+              <div className="spinner"></div>
+              <p>Processing your BOL documents...</p>
             </div>
-          </div>
-        )}
+          )}
 
-        {results.length > 0 && (
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-gray-900">Results ({results.length} BOLs)</h2>
-              <div className="flex gap-2">
-                <button onClick={copyToClipboard} className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg">
-                  <Copy className="w-4 h-4" /> Copy Table
-                </button>
-                <button onClick={downloadCSV} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
-                  <Download className="w-4 h-4" /> Download CSV
-                </button>
+          {!loading && results.length === 0 && selectedFiles.length === 0 && (
+            <div className="empty-state-card">
+              <div className="empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="12" y1="18" x2="12" y2="12"/>
+                  <line x1="9" y1="15" x2="15" y2="15"/>
+                </svg>
+              </div>
+              <h3>No BOL data yet</h3>
+              <p>Upload your first Bill of Lading PDF to get started</p>
+            </div>
+          )}
+
+          {!loading && results.length > 0 && (
+            <div className="results-container">
+              <div className="results-header">
+                <h3>Extracted Results ({results.length})</h3>
+                <div className="export-buttons">
+                  <button className="copy-btn" onClick={copyToClipboard}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                    Copy to Clipboard
+                  </button>
+                  <button className="export-btn" onClick={exportToCSV}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                      <polyline points="7 10 12 15 17 10"/>
+                      <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Download CSV
+                  </button>
+                </div>
+              </div>
+
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>PRO</th>
+                      <th>Driver</th>
+                      <th>Zone</th>
+                      <th>Weight</th>
+                      <th>Volume</th>
+                      <th>Chargeable</th>
+                      <th>Freight</th>
+                      <th>Fuel</th>
+                      <th>Debris R</th>
+                      <th>Liftgate</th>
+                      <th>Inside</th>
+                      <th>Over</th>
+                      <th>Residential</th>
+                      <th>Time</th>
+                      <th>Detention</th>
+                      <th>Extras</th>
+                      <th>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.map((result, idx) => (
+                      <tr key={idx}>
+                        <td>{result.pro}</td>
+                        <td>{result.driver}</td>
+                        <td>{result.zone}</td>
+                        <td>{result.weight}</td>
+                        <td>{result.volume}</td>
+                        <td>{result.chargeableWeight}</td>
+                        <td>${result.freight}</td>
+                        <td>${result.fuelSurcharge}</td>
+                        <td>${result.debrisRemoval}</td>
+                        <td>{result.liftgate}</td>
+                        <td>{result.inside}</td>
+                        <td>{result.overLength}</td>
+                        <td>{result.residential}</td>
+                        <td>{result.timeSpecific}</td>
+                        <td>${result.detention}</td>
+                        <td></td>
+                        <td><strong>${result.total}</strong></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
+          )}
+        </main>
+      </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className="bg-gray-100">
-                    <th className="border px-3 py-2 text-left">Job</th>
-                    <th className="border px-3 py-2 text-left">Driver</th>
-                    <th className="border px-3 py-2 text-left">Zone</th>
-                    <th className="border px-3 py-2 text-right">Weight</th>
-                    <th className="border px-3 py-2 text-right">Volume</th>
-                    <th className="border px-3 py-2 text-right">Chargeable</th>
-                    <th className="border px-3 py-2 text-right">Freight</th>
-                    <th className="border px-3 py-2 text-right">Fuel</th>
-                    <th className="border px-3 py-2 text-right">Debris</th>
-                    <th className="border px-3 py-2 text-center">Lift</th>
-                    <th className="border px-3 py-2 text-center">Inside</th>
-                    <th className="border px-3 py-2 text-center">Over</th>
-                    <th className="border px-3 py-2 text-center">Res</th>
-                    <th className="border px-3 py-2 text-center">Time</th>
-                    <th className="border px-3 py-2 text-right">Det</th>
-                    <th className="border px-3 py-2 text-right">Extras</th>
-                    <th className="border px-3 py-2 text-right bg-blue-50 font-bold">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((row, i) => (
-                    <tr key={i} className="hover:bg-gray-50">
-                      <td className="border px-3 py-2">{row.pro}</td>
-                      <td className="border px-3 py-2">{row.driver}</td>
-                      <td className="border px-3 py-2 text-center">
-                        {row.zone}
-                        {row.zoneSource === 'ZIP' && (
-                          <span 
-                            className="ml-1 text-xs text-blue-600 cursor-help" 
-                            title={`Zone determined from delivery ZIP: ${row.deliveryZip}`}
-                          >
-                            (ZIP)
-                          </span>
-                        )}
-                      </td>
-                      <td className="border px-3 py-2 text-right">{row.weight}</td>
-                      <td className="border px-3 py-2 text-right">{row.volumeFt3}</td>
-                      <td className="border px-3 py-2 text-right">{row.chargeable}</td>
-                      <td className="border px-3 py-2 text-right">{row.freight === 'Quote Required' ? row.freight : (row.freight ? `${row.freight}` : '')}</td>
-                      <td className="border px-3 py-2 text-right">{row.fuelSurcharge === 'Quote Required' ? row.fuelSurcharge : (row.fuelSurcharge ? `${row.fuelSurcharge}` : '')}</td>
-                      <td className="border px-3 py-2 text-right">{row.debrisRemoval ? `${row.debrisRemoval}` : ''}</td>
-                      <td className="border px-3 py-2 text-center">{row.liftgate}</td>
-                      <td className="border px-3 py-2 text-center">{row.inside}</td>
-                      <td className="border px-3 py-2 text-center">{row.overLength}</td>
-                      <td className="border px-3 py-2 text-center">{row.residential}</td>
-                      <td className="border px-3 py-2 text-center">{row.timeSpecific}</td>
-                      <td className="border px-3 py-2 text-right">{row.detention > 0 ? `${row.detention} min` : ''}</td>
-                      <td className="border px-3 py-2 text-right">{row.extras ? `${row.extras}` : ''}</td>
-                      <td className="border px-3 py-2 text-right font-bold bg-blue-50">
-                        {row.total === 'Quote Required' ? row.total : `${row.total}`}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {showSettings && (
+        <div className="settings-modal" onClick={() => setShowSettings(false)}>
+          <div className="settings-content" onClick={(e) => e.stopPropagation()}>
+            <h3>Settings</h3>
+            <div className="setting-item">
+              <label>Fuel Surcharge Percentage</label>
+              <input
+                type="number"
+                step="0.01"
+                value={fuelSurchargePercent * 100}
+                onChange={(e) => setFuelSurchargePercent(parseFloat(e.target.value) / 100)}
+                min="0"
+                max="100"
+              />
+            </div>
+            <div className="settings-actions">
+              <button className="cancel-btn" onClick={() => setShowSettings(false)}>
+                Cancel
+              </button>
+              <button className="save-btn" onClick={() => setShowSettings(false)}>
+                Save
+              </button>
             </div>
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </>
   );
 }
 
