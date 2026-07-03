@@ -16,6 +16,39 @@ const anthropic = new Anthropic({
 // triggers) come from the per-customer config — see config/README.md.
 // processPage takes the config as a parameter; nothing is hardcoded here.
 
+// Structured-output schema: the API guarantees the response validates against
+// this, so there is no JSON-scraping/parse-failure path, and the enum fields
+// can never drift from the exact strings pricing switches on.
+const EXTRACTION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'pro', 'pickupState', 'deliveryState', 'zone', 'deliveryZip',
+    'deliveryAddress', 'weight', 'volumeFt3', 'liftgate', 'inside',
+    'residential', 'overLength', 'palletCount', 'hasDebrisSection',
+    'clientName', 'timeSpecific', 'detention'
+  ],
+  properties: {
+    pro: { type: 'string' },
+    pickupState: { type: 'string' },
+    deliveryState: { type: 'string' },
+    zone: { type: 'string' },
+    deliveryZip: { type: 'string' },
+    deliveryAddress: { type: 'string' },
+    weight: { type: 'number' },
+    volumeFt3: { type: 'number' },
+    liftgate: { enum: ['Yes', ''] },
+    inside: { enum: ['Yes', ''] },
+    residential: { enum: ['Yes', ''] },
+    overLength: { enum: ['97-144', '145-192', '193-240', '241 or more', ''] },
+    palletCount: { type: 'number' },
+    hasDebrisSection: { type: 'boolean' },
+    clientName: { type: 'string' },
+    timeSpecific: { enum: ['AM Special', '2 Hours', '15 Minutes', ''] },
+    detention: { type: 'number' }
+  }
+};
+
 async function splitPdfPages(pdfBase64) {
   try {
     const pdfBuffer = Buffer.from(pdfBase64, 'base64');
@@ -65,6 +98,7 @@ async function processPage(pageBase64, pageNumber, config) {
       model: 'claude-sonnet-5',
       max_tokens: 2048,
       thinking: { type: 'disabled' },
+      output_config: { format: { type: 'json_schema', schema: EXTRACTION_SCHEMA } },
       system: [
         {
           type: 'text',
@@ -513,26 +547,17 @@ Return ONLY a valid JSON object with these exact keys (no markdown, no explanati
       }]
     });
 
-    const textContent = message.content.find((c) => c.type === 'text')?.text;
-
-    let extractedData;
-    try {
-      let cleanedText = textContent;
-      const jsonStart = cleanedText.indexOf('{');
-      const jsonEnd = cleanedText.lastIndexOf('}');
-      
-      if (jsonStart !== -1 && jsonEnd !== -1) {
-        cleanedText = cleanedText.substring(jsonStart, jsonEnd + 1);
-      }
-      
-      cleanedText = cleanedText.replace(/```json\n?|\n?```/g, '').trim();
-      extractedData = JSON.parse(cleanedText);
-      console.log('  ✅ Successfully parsed JSON data');
-    } catch (parseError) {
-      console.error('  ❌ JSON Parse Error:', parseError);
-      console.error('  📄 Response Text:', textContent);
-      throw new Error('Failed to parse Claude response as JSON');
+    // Structured outputs guarantee schema-valid JSON — but only on a normal
+    // stop. A refusal or token cutoff can leave the content unusable.
+    if (message.stop_reason === 'refusal') {
+      throw new Error('Model refused to process this page');
     }
+    if (message.stop_reason === 'max_tokens') {
+      throw new Error('Extraction output was truncated (max_tokens) — raise the limit');
+    }
+
+    const textContent = message.content.find((c) => c.type === 'text')?.text;
+    const extractedData = JSON.parse(textContent);
 
     const { fixedLanes, zipToZone, priceTable, accessorials } = config.contract;
     const validZones = Object.keys(priceTable);
