@@ -19,17 +19,20 @@ const anthropic = new Anthropic({
 // Structured-output schema: the API guarantees the response validates against
 // this, so there is no JSON-scraping/parse-failure path, and the enum fields
 // can never drift from the exact strings pricing switches on.
+const EXTRACTABLE_FIELDS = [
+  'pro', 'stopMarker', 'pickupState', 'deliveryState', 'zone', 'deliveryZip',
+  'deliveryAddress', 'weight', 'volumeFt3', 'liftgate', 'inside',
+  'residential', 'overLength', 'palletCount', 'hasDebrisSection',
+  'clientName', 'timeSpecific', 'detention', 'detentionNote'
+];
+
 const EXTRACTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: [
-    'pro', 'pickupState', 'deliveryState', 'zone', 'deliveryZip',
-    'deliveryAddress', 'weight', 'volumeFt3', 'liftgate', 'inside',
-    'residential', 'overLength', 'palletCount', 'hasDebrisSection',
-    'clientName', 'timeSpecific', 'detention'
-  ],
+  required: [...EXTRACTABLE_FIELDS, 'lowConfidenceFields'],
   properties: {
     pro: { type: 'string' },
+    stopMarker: { type: 'string' },
     pickupState: { type: 'string' },
     deliveryState: { type: 'string' },
     zone: { type: 'string' },
@@ -44,8 +47,13 @@ const EXTRACTION_SCHEMA = {
     palletCount: { type: 'number' },
     hasDebrisSection: { type: 'boolean' },
     clientName: { type: 'string' },
-    timeSpecific: { enum: ['AM Special', '2 Hours', '15 Minutes', ''] },
-    detention: { type: 'number' }
+    // "REVIEW": a time-specific indicator exists but the window fits no
+    // category — surfaced to the human instead of coin-flipping a bracket
+    timeSpecific: { enum: ['AM Special', '2 Hours', '15 Minutes', 'REVIEW', ''] },
+    detention: { type: 'number' },
+    detentionNote: { type: 'string' },
+    // Per-field self-reported confidence — drives the review UI highlighting
+    lowConfidenceFields: { type: 'array', items: { enum: EXTRACTABLE_FIELDS } }
   }
 };
 
@@ -114,20 +122,19 @@ async function processPage(pageBase64, pageNumber, config) {
 
 ═══════════════════════════════════════════════════════════════
 
-**FIELD 1: PRO NUMBER / JOB NUMBER**
-WHAT TO LOOK FOR:
-- Labels: "PRO#", "PRO Number", "Job #", "Delivery Receipt", tracking number
-- Location: Usually in header or top-right corner
-- Format: May include letters, numbers, suffixes (e.g., "WEBATL182035", "1A", "1B")
+**FIELD 1: PRO NUMBER / JOB NUMBER + FIELD 1b: STOP MARKER**
+The PRO number is PRINTED in the document title line (e.g. "Delivery Receipt - WEBATL180948") or header/barcode area.
 
-CRITICAL RULES:
-- Include ALL suffixes (1A, 1B, etc.) - these indicate multi-page BOLs
-- Return the FULL identifier exactly as shown
-- If multiple numbers exist, prefer the one labeled "PRO" or "Delivery Receipt"
+CRITICAL - PRINTED vs HANDWRITTEN:
+- Return in "pro" ONLY the printed identifier, exactly as printed. Never append handwritten characters to it.
+- Drivers often handwrite a stop/route marker NEXT TO the printed PRO (examples: "1", "3", "4-A", "4-B", sometimes with a checkmark). Return that marker separately in "stopMarker" ("" if none).
+- A letter suffix that is PART OF THE PRINTED text (e.g. printed "53880973LN") belongs in "pro".
+
+WHY THIS MATTERS: the printed PRO is the billing key; the handwritten marker tells us which stop of the route this page belongs to. Mixing them corrupts both.
 
 EXTRACTION RULE:
-- Return the complete PRO/Job number as a string
-- Return "" (empty string) if not found
+- "pro": the printed identifier only, "" if not found
+- "stopMarker": the handwritten marker near the PRO (without checkmarks), "" if none
 
 ═══════════════════════════════════════════════════════════════
 
@@ -458,48 +465,60 @@ EXTRACTION RULE:
 ═══════════════════════════════════════════════════════════════
 
 **FIELD 16: TIME-SPECIFIC DELIVERY**
-⚠️ Look for handwritten "T.S", "TS", circled time indicators, or appointment requirements
 
-WHAT TO LOOK FOR:
-- Handwritten "T.S" or "TS" (often circled)
-- "(DEL) APPOINTMENT DELIVERY Required"
-- Specific time windows in delivery instructions
-- Time-sensitive indicators
+STEP 1 - Is this shipment time-specific at all? Time-specific is indicated ONLY by:
+- Handwritten "TS" / "T.S." (usually circled), OR
+- Circled/underlined/highlighted times in the "Req Del From/To" line, OR
+- A delivery-instruction line that STATES a required window (e.g. "(DEL) 9AM-12NOON")
 
-**TIME WINDOW CLASSIFICATION:**
-- **Before 12:00 PM / Morning delivery** → "AM Special"
-- **2-hour window specified** → "2 Hours"
-- **15-minute window specified** → "15 Minutes"
+NOT time-specific (ignore these):
+- The printed "Req Del From ... To ..." line ALONE - it appears on every receipt
+- The printed "Call Req Before Del" line - that is a phone-call instruction, not a delivery window
+- A full-day window (e.g. 08:00-17:00, 09:00-17:00), even if circled
 
-CRITICAL RULES:
-- "T.S" or "TS" notations indicate time-specific delivery (classify based on actual time window if visible)
-- Appointment delivery requirements may indicate time-specific needs
-- Look for circled or highlighted time information
+If you are unsure whether a genuine indicator exists at all, return "" and add "timeSpecific" to lowConfidenceFields - do NOT return "REVIEW" for that.
 
-EXTRACTION RULE:
-- Return one of: "AM Special", "2 Hours", "15 Minutes", or ""
-- Base decision on ACTUAL time window, not "TS" notes
-- Return "" if no qualifying time window found
+STEP 2 - Read the start and end times, compute window length = end minus start, then apply the FIRST matching rule. Do the comparisons exactly - do not judge by feel:
+1. Window length is 30 minutes or less -> "15 Minutes"
+2. Window length is 2 hours 30 minutes or less -> "2 Hours"
+3. Window END time is 12:00 PM or EARLIER (12:00 PM itself counts) -> "AM Special"
+4. No rule matched -> "REVIEW" (an indicator exists but the window fits no category; do NOT guess - a human decides)
+
+"REVIEW" is ONLY for a window you successfully read from a genuine indicator but could not classify with rules 1-3. Trust the rules over intuition: a long window that ends at 12:00 PM IS "AM Special" by rule 3 - do not return "REVIEW" just because the window feels unusual.
+
+WORKED EXAMPLES:
+- 08:00 to 12:00 -> length 4h (rules 1,2 fail), ends AT 12:00 PM -> rule 3 -> "AM Special"
+- 09:00 to 12:30 -> length 3.5h (rules 1,2 fail), ends AFTER 12:00 PM -> rule 4 -> "REVIEW"
+- 10:00 to 12:00 -> length exactly 2h -> rule 2 -> "2 Hours"
+- 14:00 to 16:30 -> length 2.5h -> rule 2 -> "2 Hours"
+
+STEP 3 - If no indicator from Step 1: return ""
 
 ═══════════════════════════════════════════════════════════════
 
 **FIELD 17: DETENTION**
-WHAT TO LOOK FOR:
-- Handwritten notes about wait time, delay, detention
-- Format: Usually in minutes or hours
-- Location: Margins, additional info section, driver notes
+Detention is wait time at the stop, ALWAYS handwritten when present. It is rare - most BOLs have none. Absence of a note means 0.
+
+WHAT COUNTS AS EVIDENCE:
+- A handwritten duration with units: "45 min", "1.5 hr", "detention 40"
+- A handwritten arrival/departure time pair (e.g. "in 9:15 out 10:30") - compute the minutes
+- Words like "waited", "wait", "det", "detention" next to a number
+
+WHAT DOES NOT COUNT: printed appointment windows, scheduled times, illegible scribbles, the received-by date/time fields.
+
+UNITS RULE: a bare number of 8 or less next to a detention word is HOURS ("waited 2" -> 120); a bare number of 15 or more is MINUTES ("det 45" -> 45).
 
 EXTRACTION RULE:
-- Return number of MINUTES (convert hours to minutes if needed)
-- Return 0 if not found
+- "detention": number of MINUTES, 0 if no evidence
+- "detentionNote": raw transcription of the handwriting you based it on, "" if none - a human audits the conversion
 
 ═══════════════════════════════════════════════════════════════
 
-**OUTPUT FORMAT:**
-Return ONLY a valid JSON object with these exact keys (no markdown, no explanations):
+**OUTPUT FIELDS:**
 
 {
-  "pro": "string",
+  "pro": "printed identifier only",
+  "stopMarker": "handwritten stop marker or empty",
   "pickupState": "2-letter state code",
   "deliveryState": "2-letter state code",
   "zone": "A-L or empty string",
@@ -514,9 +533,14 @@ Return ONLY a valid JSON object with these exact keys (no markdown, no explanati
   "palletCount": number,
   "hasDebrisSection": boolean,
   "clientName": "string",
-  "timeSpecific": "AM Special" or "2 Hours" or "15 Minutes" or "",
-  "detention": number
+  "timeSpecific": "AM Special" or "2 Hours" or "15 Minutes" or "REVIEW" or "",
+  "detention": number,
+  "detentionNote": "raw transcription or empty",
+  "lowConfidenceFields": ["field names you are unsure about"]
 }
+
+**CONFIDENCE:**
+List in "lowConfidenceFields" the name of every output field whose value you were not confident about - hard-to-read handwriting, ambiguous marks, conflicting information, or values you had to guess. An empty array means you are confident in every field. Be honest: flagged fields get human review; wrong-but-unflagged fields become billing errors.
 
 **EXTRACTION PROCESS:**
 1. Scan the ENTIRE document first
@@ -558,6 +582,9 @@ Return ONLY a valid JSON object with these exact keys (no markdown, no explanati
 
     const textContent = message.content.find((c) => c.type === 'text')?.text;
     const extractedData = JSON.parse(textContent);
+    if (!Array.isArray(extractedData.lowConfidenceFields)) {
+      extractedData.lowConfidenceFields = [];
+    }
 
     const { fixedLanes, zipToZone, priceTable, accessorials } = config.contract;
     const validZones = Object.keys(priceTable);

@@ -281,6 +281,15 @@ describe('consolidateMultiPageBOLs', () => {
     expect(out[0].detention).toBe(15);
   });
 
+  test('merged shipments union their low-confidence flags', () => {
+    const out = consolidateMultiPageBOLs([
+      page({ pro: 'X1234 1A', lowConfidenceFields: ['liftgate'] }),
+      page({ pageNumber: 2, pro: 'X1234 1B', lowConfidenceFields: ['liftgate', 'detention'] }),
+    ]);
+
+    expect(out[0].lowConfidenceFields.sort()).toEqual(['detention', 'liftgate']);
+  });
+
   test('empty input returns empty output', () => {
     expect(consolidateMultiPageBOLs([])).toEqual([]);
   });

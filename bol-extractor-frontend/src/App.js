@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { consolidateMultiPageBOLs } from './consolidate';
 import { calculateCharges } from './pricing';
 
 function App() {
-  const [results, setResults] = useState([]);
+  // Consolidated shipments (raw extraction data). Priced rows are DERIVED from
+  // these, so an inline correction re-prices its row instantly.
+  const [shipments, setShipments] = useState([]);
+  const [editingCell, setEditingCell] = useState(null); // { row, field }
   const [loading, setLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -499,6 +502,51 @@ function App() {
       background: #f9fafb;
     }
 
+    .editable-cell {
+      cursor: pointer;
+    }
+
+    .editable-cell:hover {
+      outline: 2px solid #93c5fd;
+      outline-offset: -2px;
+    }
+
+    .low-confidence {
+      background: #fef3c7 !important;
+    }
+
+    .review-needed {
+      background: #fee2e2 !important;
+      color: #b91c1c;
+      font-weight: 600;
+    }
+
+    .cell-editor {
+      width: 110px;
+      padding: 4px 6px;
+      border: 2px solid #3b82f6;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    .review-legend {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: #6b7280;
+      margin: -8px 0 16px;
+    }
+
+    .legend-swatch {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      border: 1px solid #e5e7eb;
+    }
+
     .settings-modal {
       position: fixed;
       top: 0;
@@ -598,6 +646,105 @@ function App() {
     setDragging(false);
   };
 
+  // Priced rows, derived from shipments — corrections re-price automatically.
+  const results = useMemo(() => {
+    if (!customerConfig) return [];
+    return shipments.map((s) => ({
+      ...calculateCharges(s, customerConfig, { fuelSurchargePercent, driverName }),
+      filename: s.filename,
+      pageNumber: (s.pageNumbers || [s.pageNumber]).join(', '),
+      isMultiPage: s.isMultiPage,
+    }));
+  }, [shipments, customerConfig, fuelSurchargePercent, driverName]);
+
+  const NUMERIC_FIELDS = ['weight', 'volumeFt3', 'detention'];
+
+  const editableOptions = (field) => {
+    const contract = customerConfig.contract;
+    switch (field) {
+      case 'zone': return Object.keys(contract.priceTable);
+      case 'liftgate':
+      case 'inside':
+      case 'residential': return ['', 'Yes'];
+      case 'overLength': return ['', ...Object.keys(contract.accessorials.overLength)];
+      case 'timeSpecific': return ['', ...Object.keys(contract.accessorials.timeSpecific.rates), 'REVIEW'];
+      default: return null; // numeric — free input
+    }
+  };
+
+  const commitCorrection = (rowIdx, field, rawValue) => {
+    const value = NUMERIC_FIELDS.includes(field) ? (parseFloat(rawValue) || 0) : rawValue;
+    // Correction log — this becomes the real accuracy dashboard over time
+    console.log(`✏️ Correction: ${shipments[rowIdx]?.pro} ${field} "${shipments[rowIdx]?.[field]}" -> "${value}"`);
+    setShipments((prev) => prev.map((s, i) => {
+      if (i !== rowIdx) return s;
+      const fixed = { ...s, [field]: value };
+      // A human-corrected field is no longer low-confidence
+      fixed.lowConfidenceFields = (s.lowConfidenceFields || []).filter((f) => f !== field);
+      if (field === 'zone') fixed.zoneSource = 'MANUAL';
+      return fixed;
+    }));
+    setEditingCell(null);
+  };
+
+  const cellClass = (row, field) => {
+    const classes = ['editable-cell'];
+    if (row.lowConfidenceFields?.includes(field)) classes.push('low-confidence');
+    // Zone from the ZIP table (or unresolved) is a heuristic, not read off the BOL
+    if (field === 'zone' && row.zoneSource && !['BOL', 'MANUAL'].includes(row.zoneSource)) {
+      classes.push('low-confidence');
+    }
+    if (field === 'timeSpecific' && row.timeSpecific === 'REVIEW') classes.push('review-needed');
+    return classes.join(' ');
+  };
+
+  const renderEditableCell = (row, rowIdx, field, display) => {
+    const isEditing = editingCell && editingCell.row === rowIdx && editingCell.field === field;
+    if (!isEditing) {
+      return (
+        <td
+          className={cellClass(row, field)}
+          title="Click to correct"
+          onClick={() => setEditingCell({ row: rowIdx, field })}
+        >
+          {display}
+        </td>
+      );
+    }
+    let options = editableOptions(field);
+    const current = shipments[rowIdx]?.[field] ?? '';
+    if (options && !options.includes(current)) options = [current, ...options];
+    return (
+      <td>
+        {options ? (
+          <select
+            className="cell-editor"
+            autoFocus
+            defaultValue={current}
+            onChange={(e) => commitCorrection(rowIdx, field, e.target.value)}
+            onBlur={() => setEditingCell(null)}
+          >
+            {options.map((o) => (
+              <option key={o} value={o}>{o === '' ? '—' : o}</option>
+            ))}
+          </select>
+        ) : (
+          <input
+            className="cell-editor"
+            autoFocus
+            type="number"
+            defaultValue={current || 0}
+            onBlur={(e) => commitCorrection(rowIdx, field, e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitCorrection(rowIdx, field, e.target.value);
+              if (e.key === 'Escape') setEditingCell(null);
+            }}
+          />
+        )}
+      </td>
+    );
+  };
+
   const processFiles = async () => {
     if (selectedFiles.length === 0) {
       alert('Please select at least one PDF file.');
@@ -676,24 +823,7 @@ function App() {
       const consolidated = consolidateMultiPageBOLs(allResults, customerConfig.consolidation);
       console.log(`📦 Consolidated ${allResults.length} page(s) into ${consolidated.length} shipment(s)`);
 
-      const calculatedResults = consolidated.map(result => {
-        const calculated = calculateCharges(result, customerConfig, { fuelSurchargePercent, driverName });
-        console.log('💰 Calculated:', {
-          pro: calculated.pro,
-          weight: calculated.weight,
-          volumeFt3: calculated.volumeFt3,
-          chargeable: calculated.chargeable,
-          freight: calculated.freight
-        });
-        return {
-          ...calculated,
-          filename: result.filename,
-          pageNumber: (result.pageNumbers || [result.pageNumber]).join(', '),
-          isMultiPage: result.isMultiPage
-        };
-      });
-
-      setResults(calculatedResults);
+      setShipments(consolidated);
 
       if (failedPages.length > 0) {
         const details = failedPages
@@ -954,6 +1084,12 @@ function App() {
                 </div>
               </div>
 
+              <p className="review-legend">
+                <span className="legend-swatch low-confidence"></span> low confidence — verify
+                <span className="legend-swatch review-needed"></span> needs a decision
+                <span>· click any highlighted (or plain) value to correct it — the total re-prices instantly</span>
+              </p>
+
               <div className="table-wrapper">
                 <table>
                   <thead>
@@ -982,19 +1118,19 @@ function App() {
                       <tr key={idx}>
                         <td>{result.pro}</td>
                         <td>{result.driver}</td>
-                        <td>{result.zone}</td>
-                        <td>{result.weight}</td>
-                        <td>{result.volumeFt3}</td>
+                        {renderEditableCell(result, idx, 'zone', result.zone)}
+                        {renderEditableCell(result, idx, 'weight', result.weight)}
+                        {renderEditableCell(result, idx, 'volumeFt3', result.volumeFt3)}
                         <td>{result.chargeable}</td>
                         <td>${result.freight}</td>
                         <td>${result.fuelSurcharge}</td>
                         <td>${result.debrisRemoval}</td>
-                        <td>{result.liftgate}</td>
-                        <td>{result.inside}</td>
-                        <td>{result.overLength}</td>
-                        <td>{result.residential}</td>
-                        <td>{result.timeSpecific}</td>
-                        <td>${result.detention}</td>
+                        {renderEditableCell(result, idx, 'liftgate', result.liftgate)}
+                        {renderEditableCell(result, idx, 'inside', result.inside)}
+                        {renderEditableCell(result, idx, 'overLength', result.overLength)}
+                        {renderEditableCell(result, idx, 'residential', result.residential)}
+                        {renderEditableCell(result, idx, 'timeSpecific', result.timeSpecific)}
+                        {renderEditableCell(result, idx, 'detention', result.detention)}
                         <td></td>
                         <td><strong>${result.total}</strong></td>
                       </tr>

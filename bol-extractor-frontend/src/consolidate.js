@@ -166,6 +166,10 @@ function mergePages(group) {
     deliveryState: firstNonEmpty(pages, 'deliveryState'),
     clientName: firstNonEmpty(pages, 'clientName'),
     timeSpecific: firstNonEmpty(pages, 'timeSpecific'),
+    stopMarker: firstNonEmpty(pages, 'stopMarker'),
+    detentionNote: firstNonEmpty(pages, 'detentionNote'),
+    // A field doubted on ANY page stays doubted for the merged shipment
+    lowConfidenceFields: [...new Set(pages.flatMap((p) => p.lowConfidenceFields || []))],
   };
 }
 
