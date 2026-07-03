@@ -1,21 +1,29 @@
 import { calculateCharges } from './pricing';
 
-// Settlement regression: 94 real invoice rows where the biller's computed total
+// The pricing engine is config-driven — tests run against the REAL customer
+// config (gitignored, lives at repo root config/customers/). On a machine
+// without it, suites skip with a warning instead of failing.
+let config = null;
+try {
+  config = require('../../config/customers/just-great-enterprises.json');
+} catch (e) {
+  console.warn('⚠️ customer config not found — pricing suites skipped');
+}
+
+// Settlement regression: real invoice rows where the biller's computed total
 // matched Mainfreight's actual payment to <$0.02. If calculateCharges stops
-// reproducing these, a rate or formula regressed.
-//
-// The fixture holds real customer data and is gitignored — on a machine without
-// it (fresh clone), this suite skips with a warning instead of failing.
+// reproducing these, a rate or formula regressed. Fixture is gitignored.
 let fixture = null;
 try {
   fixture = require('./__fixtures__/settled-invoices.json');
 } catch (e) {
-  console.warn('⚠️ settled-invoices fixture not found — settlement regression suite skipped');
+  console.warn('⚠️ settled-invoices fixture not found — settlement regression skipped');
 }
 
-const describeIf = fixture ? describe : describe.skip;
+const describeSettled = config && fixture ? describe : describe.skip;
+const describeUnit = config ? describe : describe.skip;
 
-describeIf('calculateCharges reproduces settled Mainfreight invoices', () => {
+describeSettled('calculateCharges reproduces settled Mainfreight invoices', () => {
   const opts = { fuelSurchargePercent: fixture?.fuelSurchargePercent ?? 0.24 };
 
   test('fixture is non-trivial', () => {
@@ -24,7 +32,7 @@ describeIf('calculateCharges reproduces settled Mainfreight invoices', () => {
 
   (fixture?.rows ?? []).forEach((row) => {
     test(`${row.job} (${row.sheet}) settles at $${row.paid}`, () => {
-      const result = calculateCharges(row.input, opts);
+      const result = calculateCharges(row.input, config, opts);
       expect(result.total).not.toBe('Quote Required');
       // extrasAdjustment is the sheet's manual Extras column (fees our engine
       // doesn't model, e.g. one-off adjustments) — add it before comparing.
@@ -34,35 +42,44 @@ describeIf('calculateCharges reproduces settled Mainfreight invoices', () => {
   });
 });
 
-describe('calculateCharges unit behavior', () => {
+describeUnit('calculateCharges unit behavior', () => {
   const base = {
     pro: 'TEST1', zone: 'C', weight: 100, volumeFt3: 10,
     liftgate: '', inside: '', overLength: '', residential: '',
     timeSpecific: '', detention: 0, palletCount: 0,
     hasDebrisSection: false, isLakeshore: false,
   };
+  const noFuel = { fuelSurchargePercent: 0 };
 
   test('unknown zone returns Quote Required instead of a number', () => {
-    const r = calculateCharges({ ...base, zone: 'QUOTE' });
+    const r = calculateCharges({ ...base, zone: 'QUOTE' }, config);
     expect(r.total).toBe('Quote Required');
   });
 
   test('zone minimum applies to small shipments', () => {
-    // 100 lbs / 10 ft³ → chargeable 150 lbs → freight below zone C $22 min
-    const r = calculateCharges(base, { fuelSurchargePercent: 0 });
-    expect(r.freight).toBe('22.00');
+    // 100 lbs / 10 ft³ → chargeable ~150 lbs → freight clamps to the zone min
+    const r = calculateCharges(base, config, noFuel);
+    expect(parseFloat(r.freight)).toBeCloseTo(config.contract.priceTable.C.min, 2);
   });
 
-  test('detention bills per minute after the free 30', () => {
-    const r = calculateCharges({ ...base, detention: 122 }, { fuelSurchargePercent: 0 });
-    // 92 chargeable minutes × $0.60 = $55.20 (matches settled row WEBATL179292)
-    expect(parseFloat(r.extras)).toBeCloseTo(55.2, 2);
+  test('detention bills per minute after the free window', () => {
+    const det = config.contract.accessorials.detention;
+    const r = calculateCharges({ ...base, detention: 122 }, config, noFuel);
+    // e.g. (122−30) chargeable minutes × $0.60 = $55.20 (settled row WEBATL179292)
+    expect(parseFloat(r.extras)).toBeCloseTo((122 - det.freeMinutes) * det.perMinute, 2);
   });
 
-  test('AM Special charges $28 in zones A–D and $38 in E–L', () => {
-    const early = calculateCharges({ ...base, timeSpecific: 'AM Special' }, { fuelSurchargePercent: 0 });
-    const late = calculateCharges({ ...base, zone: 'H', timeSpecific: 'AM Special' }, { fuelSurchargePercent: 0 });
-    expect(parseFloat(early.extras)).toBeCloseTo(28, 2);
-    expect(parseFloat(late.extras)).toBeCloseTo(38, 2);
+  test('time-specific uses the early bracket in early zones and late elsewhere', () => {
+    const ts = config.contract.accessorials.timeSpecific;
+    const earlyZone = ts.earlyZones[0];
+    const lateZone = Object.keys(config.contract.priceTable).find((z) => !ts.earlyZones.includes(z));
+    const early = calculateCharges({ ...base, zone: earlyZone, timeSpecific: 'AM Special' }, config, noFuel);
+    const late = calculateCharges({ ...base, zone: lateZone, timeSpecific: 'AM Special' }, config, noFuel);
+    expect(parseFloat(early.extras)).toBeCloseTo(ts.rates['AM Special'].early, 2);
+    expect(parseFloat(late.extras)).toBeCloseTo(ts.rates['AM Special'].late, 2);
+  });
+
+  test('missing config throws instead of silently pricing wrong', () => {
+    expect(() => calculateCharges(base, null)).toThrow(/customer config/);
   });
 });

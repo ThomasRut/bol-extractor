@@ -12,25 +12,9 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-const FIXED_PRICE_LANES = {
-  "GA-NJ": 2000,
-  "CA-GA": 6000,
-  "GA-CA": 3600
-};
-
-// Mainzone lookup by delivery ZIP - loaded from the customer's verified zone
-// sheet (matches printed BOL zones and settled invoices). The data file is
-// gitignored (customer-proprietary); without it the ZIP fallback is disabled
-// and unmatched shipments surface as QUOTE for manual review.
-let ZIP_TO_ZONE = {};
-try {
-  ZIP_TO_ZONE = require('./data/zip-to-zone.verified.json').zones;
-  console.log(`Loaded ${Object.keys(ZIP_TO_ZONE).length} verified ZIP-to-zone entries`);
-} catch (err) {
-  console.error('WARNING: data/zip-to-zone.verified.json not found - ZIP-to-zone fallback disabled, unmatched ZIPs will require quotes');
-}
-
-const VALID_ZONES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
+// Business rules (fixed lanes, ZIP->zone map, valid zones, debris-client
+// triggers) come from the per-customer config — see config/README.md.
+// processPage takes the config as a parameter; nothing is hardcoded here.
 
 async function splitPdfPages(pdfBase64) {
   try {
@@ -67,8 +51,11 @@ async function splitPdfPages(pdfBase64) {
   }
 }
 
-async function processPage(pageBase64, pageNumber) {
+async function processPage(pageBase64, pageNumber, config) {
   try {
+    if (!config?.contract) {
+      throw new Error('processPage requires a customer config (see config/README.md)');
+    }
     // ✅ OPTIMIZATION 1: Prompt Caching - Move extraction rules to system with cache_control
     const message = await anthropic.messages.create({
       // claude-sonnet-4-20250514 retired 2026-06-15 (started returning 404) —
@@ -547,23 +534,28 @@ Return ONLY a valid JSON object with these exact keys (no markdown, no explanati
       throw new Error('Failed to parse Claude response as JSON');
     }
 
+    const { fixedLanes, zipToZone, priceTable, accessorials } = config.contract;
+    const validZones = Object.keys(priceTable);
+
     const pickupState = extractedData.pickupState?.toUpperCase() || '';
     const deliveryState = extractedData.deliveryState?.toUpperCase() || '';
     const laneKey = `${pickupState}-${deliveryState}`;
-    
-    if (FIXED_PRICE_LANES[laneKey]) {
+
+    if (fixedLanes[laneKey]) {
       extractedData.isFixedLane = true;
       extractedData.laneKey = laneKey;
-      extractedData.fixedPrice = FIXED_PRICE_LANES[laneKey];
-      console.log(`  🛣️ Fixed price lane: ${laneKey} = $${FIXED_PRICE_LANES[laneKey]}`);
+      extractedData.fixedPrice = fixedLanes[laneKey];
+      console.log(`  🛣️ Fixed price lane: ${laneKey} = $${fixedLanes[laneKey]}`);
     } else {
       extractedData.isFixedLane = false;
-      
-      if (!extractedData.zone || !VALID_ZONES.includes(extractedData.zone.toUpperCase())) {
+    }
+
+    if (!extractedData.isFixedLane) {
+      if (!extractedData.zone || !validZones.includes(extractedData.zone.toUpperCase())) {
         const zipCode = extractedData.deliveryZip?.replace(/\D/g, '').substring(0, 5);
-        
-        if (zipCode && ZIP_TO_ZONE[zipCode]) {
-          extractedData.zone = ZIP_TO_ZONE[zipCode];
+
+        if (zipCode && zipToZone[zipCode]) {
+          extractedData.zone = zipToZone[zipCode];
           extractedData.zoneSource = 'ZIP';
           console.log(`  🗺️ Zone from ZIP ${zipCode}: ${extractedData.zone}`);
         } else {
@@ -577,7 +569,11 @@ Return ONLY a valid JSON object with these exact keys (no markdown, no explanati
       }
     }
 
-    extractedData.isLakeshore = extractedData.clientName?.toLowerCase().includes('lakeshore') || false;
+    // "Lakeshore" generalized: any configured client-name trigger marks the
+    // shipment as always-debris (field name kept for compatibility).
+    const triggers = accessorials.debrisRemoval?.clientNameTriggers || [];
+    const clientLower = (extractedData.clientName || '').toLowerCase();
+    extractedData.isLakeshore = triggers.some((t) => clientLower.includes(String(t).toLowerCase()));
 
     return {
       pageNumber,
@@ -590,4 +586,4 @@ Return ONLY a valid JSON object with these exact keys (no markdown, no explanati
   }
 }
 
-module.exports = { splitPdfPages, processPage, FIXED_PRICE_LANES, ZIP_TO_ZONE, VALID_ZONES };
+module.exports = { splitPdfPages, processPage };

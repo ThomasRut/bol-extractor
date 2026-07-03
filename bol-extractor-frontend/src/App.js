@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { consolidateMultiPageBOLs } from './consolidate';
 import { calculateCharges } from './pricing';
 
@@ -10,6 +10,22 @@ function App() {
   const [fuelSurchargePercent, setFuelSurchargePercent] = useState(0.24);
   const [driverName, setDriverName] = useState('');
   const [selectedFiles, setSelectedFiles] = useState([]);
+  const [customerConfig, setCustomerConfig] = useState(null);
+
+  // All business rules come from the active customer's config, served by the
+  // backend. Nothing can be priced until it loads.
+  useEffect(() => {
+    fetch('http://localhost:3001/api/customer-config')
+      .then((r) => r.json())
+      .then((cfg) => {
+        setCustomerConfig(cfg);
+        setFuelSurchargePercent(cfg.contract.fuelSurchargePercent);
+        console.log(`⚙️ Loaded config for ${cfg.customerName}`);
+      })
+      .catch((err) => {
+        console.error('Failed to load customer config — is the backend running?', err);
+      });
+  }, []);
 
   const styles = `
     * {
@@ -593,6 +609,11 @@ function App() {
       return;
     }
 
+    if (!customerConfig) {
+      alert('Customer pricing config not loaded yet — make sure the backend is running on port 3001, then try again.');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -652,11 +673,11 @@ function App() {
 
       console.log('📋 All extracted results:', allResults);
 
-      const consolidated = consolidateMultiPageBOLs(allResults);
+      const consolidated = consolidateMultiPageBOLs(allResults, customerConfig.consolidation);
       console.log(`📦 Consolidated ${allResults.length} page(s) into ${consolidated.length} shipment(s)`);
 
       const calculatedResults = consolidated.map(result => {
-        const calculated = calculateCharges(result, { fuelSurchargePercent, driverName });
+        const calculated = calculateCharges(result, customerConfig, { fuelSurchargePercent, driverName });
         console.log('💰 Calculated:', {
           pro: calculated.pro,
           weight: calculated.weight,

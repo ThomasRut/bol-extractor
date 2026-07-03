@@ -120,6 +120,32 @@ describe('consolidateMultiPageBOLs', () => {
     expect(out[0].liftgate).toBe('Yes'); // one liftgate for the stop, not two
   });
 
+  test('mergeSameStopMultiBol=false keeps different PROs separate even at the same stop', () => {
+    // Per-customer config flag: some carriers settle each BOL separately.
+    const out = consolidateMultiPageBOLs(
+      [
+        page({ pro: 'WEBATL900001' }),
+        page({ pageNumber: 2, pro: 'WEBPHL900002' }),
+      ],
+      { mergeSameStopMultiBol: false }
+    );
+
+    expect(out).toHaveLength(2);
+  });
+
+  test('mergeSameStopMultiBol=false still lets unreadable-PRO pages join by address', () => {
+    const out = consolidateMultiPageBOLs(
+      [
+        page({ pro: 'WEBATL900001 1A', weight: 500 }),
+        page({ pageNumber: 2, pro: '', weight: 200 }),
+      ],
+      { mergeSameStopMultiBol: false }
+    );
+
+    expect(out).toHaveLength(1);
+    expect(out[0].weight).toBe(700);
+  });
+
   test('same address in different files stays separate (different days = different stops)', () => {
     const out = consolidateMultiPageBOLs([
       page({ pro: 'WEBATL900001', filename: 'day1.pdf' }),

@@ -1,0 +1,85 @@
+{
+  "_docs": "Template for a new customer. Copy to <customerId>.json, replace every value with the customer's contract terms, and set CUSTOMER_ID=<customerId> for the backend. See config/README.md for field-by-field docs. All values below are FAKE.",
+  "customerId": "example-trucking-co",
+  "customerName": "Example Trucking Co LLC",
+  "contract": {
+    "carrier": "Example Carrier, Inc.",
+    "reference": "Owner-Operator Agreement, Rev. January 2026",
+    "fuelSurchargePercent": 0.2,
+    "chargeableWeight": {
+      "cubicInchDivisor": 115
+    },
+    "priceTable": {
+      "A": {
+        "10000+": 0.01,
+        "5000+": 0.011,
+        "2000+": 0.012,
+        "1000+": 0.013,
+        "min": 15.0,
+        "max": 150.0
+      },
+      "B": {
+        "10000+": 0.012,
+        "5000+": 0.013,
+        "2000+": 0.014,
+        "1000+": 0.015,
+        "min": 18.0,
+        "max": 175.0
+      }
+    },
+    "accessorials": {
+      "liftgate": {
+        "flat": 25
+      },
+      "inside": {
+        "perPound": 0.005,
+        "min": 12,
+        "max": 90
+      },
+      "residential": {
+        "flat": 18
+      },
+      "overLength": {
+        "97-144": 10,
+        "145-192": 15,
+        "193-240": 20,
+        "241 or more": 25
+      },
+      "timeSpecific": {
+        "earlyZones": [
+          "A"
+        ],
+        "rates": {
+          "AM Special": {
+            "early": 25,
+            "late": 35
+          },
+          "2 Hours": {
+            "early": 35,
+            "late": 45
+          },
+          "15 Minutes": {
+            "early": 50,
+            "late": 60
+          }
+        }
+      },
+      "detention": {
+        "freeMinutes": 30,
+        "perMinute": 0.5
+      },
+      "debrisRemoval": {
+        "perPallet": 2.5,
+        "clientNameTriggers": []
+      }
+    },
+    "fixedLanes": {},
+    "zipToZone": {
+      "00001": "A",
+      "00002": "B"
+    }
+  },
+  "consolidation": {
+    "mergeSameStopMultiBol": true
+  }
+}

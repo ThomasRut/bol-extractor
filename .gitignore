@@ -15,3 +15,7 @@ CLAUDE.md
 bol-extractor-backend/data/
 bol-extractor-frontend/src/__fixtures__/
 bol-extractor-backend/test/fixtures/
+
+# Customer contract configs are proprietary - only the fake example is committed
+config/customers/*.json
+!config/customers/_example.json

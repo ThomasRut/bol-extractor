@@ -169,7 +169,11 @@ function mergePages(group) {
   };
 }
 
-export function consolidateMultiPageBOLs(pageResults) {
+// options.mergeSameStopMultiBol (per-customer config): when true, several BOLs
+// delivered to one address in one file settle as ONE job (Mainfreight
+// behavior). When false, different PROs never merge — only continuation pages
+// with unreadable PROs join by address.
+export function consolidateMultiPageBOLs(pageResults, { mergeSameStopMultiBol = true } = {}) {
   const groups = [];
   let previousGroup = null;
 
@@ -184,10 +188,11 @@ export function consolidateMultiPageBOLs(pageResults) {
     }
     if (!group && normAddr) {
       // Same stop: same delivery address within the same uploaded file.
-      // Merges continuation pages with unreadable PROs AND multi-BOL stops
-      // (different PROs, one physical delivery — billed as one job).
       group = groups.find(
-        (g) => g.addresses.has(normAddr) && g.filenames.has(page.filename)
+        (g) =>
+          g.addresses.has(normAddr) &&
+          g.filenames.has(page.filename) &&
+          (mergeSameStopMultiBol || !proBase || g.proBases.size === 0 || g.proBases.has(proBase))
       );
       if (group && proBase) group.proBases.add(proBase);
     }

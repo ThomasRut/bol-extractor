@@ -2,7 +2,11 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 const { splitPdfPages, processPage } = require('./extraction');
+const { loadCustomerConfig } = require('./config-loader');
 
+// All business rules (rates, zones, lanes) come from the active customer's
+// config — selected by CUSTOMER_ID env var. Fails fast if missing.
+const customerConfig = loadCustomerConfig();
 
 const app = express();
 const PORT = 3001;
@@ -16,6 +20,13 @@ const DELAY_BETWEEN_PAGES_MS = 2000;
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });
+});
+
+// The frontend prices with the same config the backend extracts with.
+// zipToZone is stripped — it's large and only the backend needs it.
+app.get('/api/customer-config', (req, res) => {
+  const { zipToZone, ...contract } = customerConfig.contract;
+  res.json({ ...customerConfig, contract });
 });
 
 app.post('/api/process-bol', async (req, res) => {
@@ -42,7 +53,7 @@ app.post('/api/process-bol', async (req, res) => {
           await delay(DELAY_BETWEEN_PAGES_MS);
         }
         
-        const result = await processPage(page.base64, page.pageNumber);
+        const result = await processPage(page.base64, page.pageNumber, customerConfig);
         results.push({
           ...result,
           success: true,
@@ -77,12 +88,12 @@ app.post('/api/process-bol', async (req, res) => {
 });
 
 app.listen(PORT, () => {
+  const c = customerConfig.contract;
   console.log(`🚀 Backend server running on http://localhost:${PORT}`);
   console.log(`📡 Health check: http://localhost:${PORT}/health`);
-  console.log(`\n📋 Features:`);
-  console.log(`   ✓ Fixed lanes: GA→NJ ($2,000), CA→GA ($6,000), GA→CA ($3,600)`);
-  console.log(`   ✓ Zone pricing with ZIP fallback`);
-  console.log(`   ✓ Rate limiting: ${DELAY_BETWEEN_PAGES_MS}ms delay between pages`);
-  console.log(`   ✓ Prompt caching enabled (50% cost savings after first page)`);
-  console.log(`   ✓ PDF compression enabled (~20% size reduction)\n`);
+  console.log(`\n📋 Active customer: ${customerConfig.customerName} (${customerConfig.customerId})`);
+  console.log(`   ✓ Contract: ${c.carrier}`);
+  console.log(`   ✓ Zones: ${Object.keys(c.priceTable).join('')} | ZIP map: ${Object.keys(c.zipToZone).length} entries`);
+  console.log(`   ✓ Fixed lanes: ${Object.keys(c.fixedLanes).join(', ') || 'none'}`);
+  console.log(`   ✓ Rate limiting: ${DELAY_BETWEEN_PAGES_MS}ms delay between pages\n`);
 });

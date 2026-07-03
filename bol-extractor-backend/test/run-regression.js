@@ -52,6 +52,8 @@ async function extractLive() {
   const configPath = path.join(FIXTURES, 'config.json');
   const { samplePdf } = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
   const { splitPdfPages, processPage } = require('../extraction');
+  const { loadCustomerConfig } = require('../config-loader');
+  const customerConfig = loadCustomerConfig();
 
   console.log(`Extracting: ${samplePdf}`);
   const pdfBase64 = fs.readFileSync(samplePdf).toString('base64');
@@ -61,7 +63,7 @@ async function extractLive() {
   for (const page of pages) {
     process.stdout.write(`  page ${page.pageNumber}/${pages.length}... `);
     try {
-      const result = await processPage(page.base64, page.pageNumber);
+      const result = await processPage(page.base64, page.pageNumber, customerConfig);
       delete result.data; // raw model text — noisy, not needed for diffing
       fs.writeFileSync(
         path.join(CACHED_DIR, `page-${page.pageNumber}.json`),
