@@ -16,12 +16,6 @@ const PRICE_TABLE = {
   'L': { '10000+': 0.0313, '5000+': 0.0332, '2000+': 0.0352, '1000+': 0.0371, min: 46.00, max: 420.00 },
 };
 
-const TIME_SPECIFIC_CHARGES = {
-  'AM Special': { 'A-D': 23, 'E-L': 33 },
-  '2 Hours': { 'A-D': 38, 'E-L': 48 },
-  '15 Minutes': { 'A-D': 53, 'E-L': 63 }
-};
-
 function App() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -658,14 +652,15 @@ function App() {
     let timeSpecificCharge = 0;
     
     if (data.timeSpecific) {
-      if (data.timeSpecific === 'AM Special') timeSpecificCharge = isEarlyZone ? 23 : 33;
+      if (data.timeSpecific === 'AM Special') timeSpecificCharge = isEarlyZone ? 28 : 38;
       else if (data.timeSpecific === '2 Hours') timeSpecificCharge = isEarlyZone ? 38 : 48;
       else if (data.timeSpecific === '15 Minutes') timeSpecificCharge = isEarlyZone ? 53 : 63;
     }
 
-    // Calculate detention
-    const detentionCharge = data.detention > 30 
-      ? Math.ceil((data.detention - 30) / 60) * 36 
+    // Calculate detention: $0.60/min after the first free 30 minutes
+    // (verified against settled invoices — Mainfreight pays per minute, not per hour)
+    const detentionCharge = data.detention > 30
+      ? (data.detention - 30) * 0.60
       : 0;
 
     // Calculate extras

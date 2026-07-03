@@ -104,10 +104,26 @@ describe('consolidateMultiPageBOLs', () => {
     expect(out[0].pageNumbers).toEqual([1, 2]);
   });
 
-  test('same address but different PROs stay separate shipments', () => {
+  // Customer-confirmed: one stop receiving several BOLs (driver marks like
+  // "4-A"/"4-B") settles as ONE job — combined weight/volume, one liftgate.
+  test('different PROs at the same address in the same file merge as one stop', () => {
     const out = consolidateMultiPageBOLs([
-      page({ pro: 'WEBATL900001' }),
-      page({ pageNumber: 2, pro: 'WEBPHL900002' }),
+      page({ pro: 'WEBATL900001', weight: 208, volumeFt3: 23.33, liftgate: 'Yes' }),
+      page({ pageNumber: 2, pro: 'WEBPHL900002', weight: 145, volumeFt3: 25.56, liftgate: 'Yes' }),
+    ]);
+
+    expect(out).toHaveLength(1);
+    expect(out[0].isMultiDocStop).toBe(true);
+    expect(out[0].pro).toBe('WEBATL900001 + WEBPHL900002');
+    expect(out[0].weight).toBe(353);
+    expect(out[0].volumeFt3).toBeCloseTo(48.89);
+    expect(out[0].liftgate).toBe('Yes'); // one liftgate for the stop, not two
+  });
+
+  test('same address in different files stays separate (different days = different stops)', () => {
+    const out = consolidateMultiPageBOLs([
+      page({ pro: 'WEBATL900001', filename: 'day1.pdf' }),
+      page({ pro: 'WEBPHL900002', filename: 'day2.pdf' }),
     ]);
 
     expect(out).toHaveLength(2);

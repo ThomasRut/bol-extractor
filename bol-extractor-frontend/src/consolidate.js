@@ -1,14 +1,19 @@
 // Multi-page BOL consolidation.
 //
-// A multi-page BOL arrives as several extracted page results that describe ONE
-// shipment and must be billed once. Pages are matched with three signals, in
-// order of trust:
+// Pages that describe ONE billable job must merge into one row. Two real-world
+// cases (customer-confirmed against Mainfreight settlements):
+//   - one shipment split across pages (same PRO, page suffixes like 1A/1B)
+//   - one STOP receiving several BOLs with different PROs (driver marks like
+//     "4-A"/"4-B") — settles as ONE job: combined weight/volume, one liftgate
+//
+// Pages are matched with three signals, in order of trust:
 //
 //   1. PRO number with the page suffix stripped ("WEBATL900001 1A" and
 //      "WEBATL900001 1B" are the same shipment).
-//   2. Normalized delivery address — only for pages with no readable PRO.
-//      Two pages that BOTH have PROs never merge on address alone, so two
-//      different shipments delivered to the same building stay separate.
+//   2. Same normalized delivery address within the SAME uploaded file (a file
+//      is typically one driver-day, so same file + same address = same stop).
+//      The same address in different files stays separate — different days
+//      are different stops.
 //   3. Consecutive page in the same uploaded file — only for pages with
 //      neither a PRO nor an address.
 //
@@ -121,16 +126,19 @@ function maxOverLength(pages) {
 function mergePages(group) {
   const pages = group.pages;
   const first = pages[0];
+  const proBases = [...group.proBases];
 
   const zonePage = pages.find((p) => !isEmptyZone(p.zone));
   const fixedLanePage = pages.find((p) => p.isFixedLane);
 
   return {
     ...first,
-    pro: group.proBase || firstNonEmpty(pages, 'pro'),
+    // A multi-BOL stop shows every PRO it settles ("PROA + PROB")
+    pro: proBases.length ? proBases.join(' + ') : firstNonEmpty(pages, 'pro'),
     originalPros: pages.map((p) => p.pro || ''),
     pageNumbers: pages.map((p) => p.pageNumber),
     isMultiPage: true,
+    isMultiDocStop: proBases.length > 1,
     pages,
 
     weight: pages.reduce((sum, p) => sum + toNumber(p.weight), 0),
@@ -172,31 +180,41 @@ export function consolidateMultiPageBOLs(pageResults) {
     let group = null;
 
     if (proBase) {
-      group = groups.find((g) => g.proBase && g.proBase === proBase);
-      // A sibling page may have had an unreadable PRO but a matching address;
-      // adopt that group (and give it this PRO) rather than splitting the BOL.
-      if (!group && normAddr) {
-        group = groups.find((g) => !g.proBase && g.addresses.has(normAddr));
-        if (group) group.proBase = proBase;
-      }
-    } else if (normAddr) {
-      group = groups.find((g) => g.addresses.has(normAddr));
-    } else if (
+      group = groups.find((g) => g.proBases.has(proBase));
+    }
+    if (!group && normAddr) {
+      // Same stop: same delivery address within the same uploaded file.
+      // Merges continuation pages with unreadable PROs AND multi-BOL stops
+      // (different PROs, one physical delivery — billed as one job).
+      group = groups.find(
+        (g) => g.addresses.has(normAddr) && g.filenames.has(page.filename)
+      );
+      if (group && proBase) group.proBases.add(proBase);
+    }
+    if (
+      !group &&
+      !proBase &&
+      !normAddr &&
       previousGroup &&
-      page.filename === previousGroup.lastFilename &&
+      previousGroup.filenames.has(page.filename) &&
       page.pageNumber === previousGroup.lastPageNumber + 1
     ) {
       group = previousGroup;
     }
 
     if (!group) {
-      group = { proBase, addresses: new Set(), pages: [] };
+      group = {
+        proBases: new Set(proBase ? [proBase] : []),
+        addresses: new Set(),
+        filenames: new Set(),
+        pages: [],
+      };
       groups.push(group);
     }
 
     if (normAddr) group.addresses.add(normAddr);
+    group.filenames.add(page.filename);
     group.pages.push(page);
-    group.lastFilename = page.filename;
     group.lastPageNumber = page.pageNumber;
     previousGroup = group;
   }
@@ -206,6 +224,7 @@ export function consolidateMultiPageBOLs(pageResults) {
       ? {
           ...group.pages[0],
           isMultiPage: false,
+          isMultiDocStop: false,
           pageNumbers: [group.pages[0].pageNumber],
           pages: group.pages,
         }
