@@ -827,7 +827,7 @@ function App() {
                      'Debris R', 'Liftgate', 'Inside', 'Over', 'Residential', 'Time', 'Detention', 'Extras', 'Total'];
     
     const rows = results.map(r => [
-      r.pro, r.driver, r.zone, r.weight, r.volume, r.chargeableWeight,
+      r.pro, r.driver, r.zone, r.weight, r.volumeFt3, r.chargeable,
       r.freight, r.fuelSurcharge, r.debrisRemoval, r.liftgate, r.inside,
       r.overLength, r.residential, r.timeSpecific || '', r.detention, '', r.total
     ]);
@@ -850,8 +850,8 @@ function App() {
       r.driver,                 // Driver
       r.zone,                   // Zone
       r.weight,                 // Weight
-      r.volume,                 // Volume
-      r.chargeableWeight,       // Chargeable
+      r.volumeFt3,              // Volume
+      r.chargeable,             // Chargeable
       r.freight,                // Freight
       r.fuelSurcharge,          // Fuel
       r.debrisRemoval,          // Debris R
@@ -1096,8 +1096,8 @@ function App() {
                         <td>{result.driver}</td>
                         <td>{result.zone}</td>
                         <td>{result.weight}</td>
-                        <td>{result.volume}</td>
-                        <td>{result.chargeableWeight}</td>
+                        <td>{result.volumeFt3}</td>
+                        <td>{result.chargeable}</td>
                         <td>${result.freight}</td>
                         <td>${result.fuelSurcharge}</td>
                         <td>${result.debrisRemoval}</td>
