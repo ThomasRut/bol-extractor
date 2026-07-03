@@ -8,3 +8,8 @@ node_modules/
 Thumbs.db
 build/
 dist/
+# Local-only: customer/contract-sensitive documents and data - do not commit
+AUDIT.md
+ACCURACY.md
+CLAUDE.md
+bol-extractor-backend/data/

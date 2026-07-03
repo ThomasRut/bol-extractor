@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { consolidateMultiPageBOLs } from './consolidate';
 
 const PRICE_TABLE = {
   'A': { '10000+': 0.0121, '5000+': 0.0129, '2000+': 0.0137, '1000+': 0.0144, min: 18.00, max: 160.00 },
@@ -731,10 +732,11 @@ function App() {
     }
 
     setLoading(true);
-    
+
     try {
       const allResults = [];
-      
+      const failedPages = [];
+
       for (const file of selectedFiles) {
         console.log(`\n📄 Processing: ${file.name}`);
         
@@ -764,8 +766,13 @@ function App() {
         console.log('📊 Server response:', data);
         
         if (data.results && data.results.length > 0) {
-          data.results.forEach((result, i) => {
-            console.log(`  Page ${i + 1}:`, {
+          data.results.forEach((result) => {
+            if (result.success === false) {
+              // Failed pages must not become invoice rows — track and report.
+              failedPages.push({ filename: file.name, pageNumber: result.pageNumber, error: result.error });
+              return;
+            }
+            console.log(`  Page ${result.pageNumber}:`, {
               pro: result.pro,
               weight: result.weight,
               volumeFt3: result.volumeFt3,
@@ -775,32 +782,43 @@ function App() {
               residential: result.residential,
               timeSpecific: result.timeSpecific
             });
+            // filename is needed by consolidation's consecutive-page signal
+            allResults.push({ ...result, filename: file.name });
           });
-          
-          allResults.push(...data.results);
         }
       }
 
       console.log('📋 All extracted results:', allResults);
 
-      const calculatedResults = allResults.map(result => {
+      const consolidated = consolidateMultiPageBOLs(allResults);
+      console.log(`📦 Consolidated ${allResults.length} page(s) into ${consolidated.length} shipment(s)`);
+
+      const calculatedResults = consolidated.map(result => {
         const calculated = calculateCharges(result);
         console.log('💰 Calculated:', {
           pro: calculated.pro,
           weight: calculated.weight,
-          volume: calculated.volume,
-          chargeableWeight: calculated.chargeableWeight,
+          volumeFt3: calculated.volumeFt3,
+          chargeable: calculated.chargeable,
           freight: calculated.freight
         });
         return {
           ...calculated,
           filename: result.filename,
-          pageNumber: result.pageNumber
+          pageNumber: (result.pageNumbers || [result.pageNumber]).join(', '),
+          isMultiPage: result.isMultiPage
         };
       });
-      
+
       setResults(calculatedResults);
-      
+
+      if (failedPages.length > 0) {
+        const details = failedPages
+          .map(p => `• ${p.filename} page ${p.pageNumber}: ${p.error || 'unknown error'}`)
+          .join('\n');
+        alert(`⚠️ ${failedPages.length} page(s) could not be extracted and are NOT included in the results:\n\n${details}\n\nProcess these pages manually or re-upload them.`);
+      }
+
     } catch (error) {
       console.error('❌ Error processing files:', error);
       alert(`Error processing files: ${error.message}\n\nPlease check:\n- Server is running on port 3001\n- Files are valid PDFs\n- Driver name is entered`);
