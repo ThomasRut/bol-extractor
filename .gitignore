@@ -13,3 +13,5 @@ AUDIT.md
 ACCURACY.md
 CLAUDE.md
 bol-extractor-backend/data/
+bol-extractor-frontend/src/__fixtures__/
+bol-extractor-backend/test/fixtures/
