@@ -4,8 +4,8 @@
 // shipment and must be billed once. Pages are matched with three signals, in
 // order of trust:
 //
-//   1. PRO number with the page suffix stripped ("WEBATL162264 1A" and
-//      "WEBATL162264 1B" are the same shipment).
+//   1. PRO number with the page suffix stripped ("WEBATL900001 1A" and
+//      "WEBATL900001 1B" are the same shipment).
 //   2. Normalized delivery address — only for pages with no readable PRO.
 //      Two pages that BOTH have PROs never merge on address alone, so two
 //      different shipments delivered to the same building stay separate.

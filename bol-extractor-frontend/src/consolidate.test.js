@@ -5,10 +5,13 @@ import {
 } from './consolidate';
 
 // Representative extracted page, matching the backend's response shape.
+// PRO fixtures are synthetic but format-faithful to real-world shapes:
+// "WEBATL900001" / "WEBPHL900002" mimic WEB+branch+6-digit web PROs,
+// "53880900LN" mimics numeric PROs with a printed (non-suffix) letter tail.
 const page = (overrides) => ({
   pageNumber: 1,
   filename: 'batch1.pdf',
-  pro: 'WEBATL162264',
+  pro: 'WEBATL900001',
   pickupState: 'GA',
   deliveryState: 'GA',
   zone: 'C',
@@ -34,16 +37,18 @@ const page = (overrides) => ({
 
 describe('stripProSuffix', () => {
   test('strips page-marker suffixes in common formats', () => {
-    expect(stripProSuffix('WEBATL162264 1A')).toBe('WEBATL162264');
-    expect(stripProSuffix('WEBATL162264-1B')).toBe('WEBATL162264');
-    expect(stripProSuffix('WEBATL1622641A')).toBe('WEBATL162264');
-    expect(stripProSuffix('webatl162264 2b')).toBe('WEBATL162264');
-    expect(stripProSuffix('WEBATL162264 A')).toBe('WEBATL162264');
+    expect(stripProSuffix('WEBATL900001 1A')).toBe('WEBATL900001');
+    expect(stripProSuffix('WEBATL900001-1B')).toBe('WEBATL900001');
+    expect(stripProSuffix('WEBATL9000011A')).toBe('WEBATL900001');
+    expect(stripProSuffix('webatl900001 2b')).toBe('WEBATL900001');
+    expect(stripProSuffix('WEBATL900001 A')).toBe('WEBATL900001');
   });
 
   test('leaves suffix-free PROs untouched', () => {
-    expect(stripProSuffix('WEBATL162264')).toBe('WEBATL162264');
-    expect(stripProSuffix('WEBPHL161598')).toBe('WEBPHL161598');
+    expect(stripProSuffix('WEBATL900001')).toBe('WEBATL900001');
+    expect(stripProSuffix('WEBPHL900002')).toBe('WEBPHL900002');
+    // printed letter tails are part of the PRO, not a page marker
+    expect(stripProSuffix('53880900LN')).toBe('53880900LN');
   });
 
   test('never strips down to an implausibly short identifier', () => {
@@ -77,7 +82,7 @@ describe('consolidateMultiPageBOLs', () => {
 
     expect(out).toHaveLength(1);
     expect(out[0].isMultiPage).toBe(false);
-    expect(out[0].pro).toBe('WEBATL162264');
+    expect(out[0].pro).toBe('WEBATL900001');
     expect(out[0].weight).toBe(750);
     expect(out[0].liftgate).toBe('Yes');
     expect(out[0].zone).toBe('C');
@@ -85,14 +90,14 @@ describe('consolidateMultiPageBOLs', () => {
 
   test('same PRO with different suffixes merges into one shipment', () => {
     const out = consolidateMultiPageBOLs([
-      page({ pro: 'WEBATL162264 1A', weight: 500, volumeFt3: 40, palletCount: 2 }),
-      page({ pageNumber: 2, pro: 'WEBATL162264 1B', weight: 300, volumeFt3: 25, palletCount: 1 }),
+      page({ pro: 'WEBATL900001 1A', weight: 500, volumeFt3: 40, palletCount: 2 }),
+      page({ pageNumber: 2, pro: 'WEBATL900001 1B', weight: 300, volumeFt3: 25, palletCount: 1 }),
     ]);
 
     expect(out).toHaveLength(1);
     expect(out[0].isMultiPage).toBe(true);
-    expect(out[0].pro).toBe('WEBATL162264');
-    expect(out[0].originalPros).toEqual(['WEBATL162264 1A', 'WEBATL162264 1B']);
+    expect(out[0].pro).toBe('WEBATL900001');
+    expect(out[0].originalPros).toEqual(['WEBATL900001 1A', 'WEBATL900001 1B']);
     expect(out[0].weight).toBe(800);
     expect(out[0].volumeFt3).toBe(65);
     expect(out[0].palletCount).toBe(3);
@@ -101,8 +106,8 @@ describe('consolidateMultiPageBOLs', () => {
 
   test('same address but different PROs stay separate shipments', () => {
     const out = consolidateMultiPageBOLs([
-      page({ pro: 'WEBATL162264' }),
-      page({ pageNumber: 2, pro: 'WEBPHL161598' }),
+      page({ pro: 'WEBATL900001' }),
+      page({ pageNumber: 2, pro: 'WEBPHL900002' }),
     ]);
 
     expect(out).toHaveLength(2);
@@ -110,7 +115,7 @@ describe('consolidateMultiPageBOLs', () => {
 
   test('page with unreadable PRO joins its sibling by address', () => {
     const out = consolidateMultiPageBOLs([
-      page({ pro: 'WEBATL162264 1A', weight: 500 }),
+      page({ pro: 'WEBATL900001 1A', weight: 500 }),
       page({
         pageNumber: 2,
         pro: '',
@@ -121,23 +126,23 @@ describe('consolidateMultiPageBOLs', () => {
 
     expect(out).toHaveLength(1);
     expect(out[0].weight).toBe(700);
-    expect(out[0].pro).toBe('WEBATL162264');
+    expect(out[0].pro).toBe('WEBATL900001');
   });
 
   test('address-matched page seen first adopts the PRO from a later page', () => {
     const out = consolidateMultiPageBOLs([
       page({ pro: '', weight: 200 }),
-      page({ pageNumber: 2, pro: 'WEBATL162264 1B', weight: 500 }),
+      page({ pageNumber: 2, pro: 'WEBATL900001 1B', weight: 500 }),
     ]);
 
     expect(out).toHaveLength(1);
-    expect(out[0].pro).toBe('WEBATL162264');
+    expect(out[0].pro).toBe('WEBATL900001');
     expect(out[0].weight).toBe(700);
   });
 
   test('page with no PRO and no address joins the previous consecutive page', () => {
     const out = consolidateMultiPageBOLs([
-      page({ pro: 'WEBATL162264 1A', weight: 500 }),
+      page({ pro: 'WEBATL900001 1A', weight: 500 }),
       page({ pageNumber: 2, pro: '', deliveryAddress: '', weight: 300 }),
     ]);
 
@@ -147,7 +152,7 @@ describe('consolidateMultiPageBOLs', () => {
 
   test('unidentifiable page does NOT join across files or page gaps', () => {
     const out = consolidateMultiPageBOLs([
-      page({ pro: 'WEBATL162264', filename: 'a.pdf' }),
+      page({ pro: 'WEBATL900001', filename: 'a.pdf' }),
       page({ pageNumber: 2, pro: '', deliveryAddress: '', filename: 'b.pdf' }),
     ]);
 
@@ -157,7 +162,7 @@ describe('consolidateMultiPageBOLs', () => {
   test('conflicting field values resolve per the aggregation rules', () => {
     const out = consolidateMultiPageBOLs([
       page({
-        pro: 'WEBATL162264 1A',
+        pro: 'WEBATL900001 1A',
         liftgate: 'Yes',
         inside: '',
         residential: '',
@@ -170,7 +175,7 @@ describe('consolidateMultiPageBOLs', () => {
       }),
       page({
         pageNumber: 2,
-        pro: 'WEBATL162264 1B',
+        pro: 'WEBATL900001 1B',
         liftgate: '',
         inside: 'Yes',
         residential: 'Yes',
