@@ -7,6 +7,7 @@ function App() {
   // these, so an inline correction re-prices its row instantly.
   const [shipments, setShipments] = useState([]);
   const [editingCell, setEditingCell] = useState(null); // { row, field }
+  const [selectedLane, setSelectedLane] = useState('');
   const [loading, setLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -547,6 +548,80 @@ function App() {
       border: 1px solid #e5e7eb;
     }
 
+    .lane-section {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+
+    .lane-section label {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 8px;
+    }
+
+    .lane-controls {
+      display: flex;
+      gap: 8px;
+    }
+
+    .lane-controls select {
+      flex: 1;
+      padding: 10px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 14px;
+      background: white;
+    }
+
+    .add-lane-btn {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .add-lane-btn:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+
+    .lane-section p {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 6px;
+    }
+
+    .manual-note {
+      color: #6b7280;
+      font-style: italic;
+    }
+
+    .remove-row-btn {
+      background: none;
+      border: none;
+      color: #ef4444;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-left: 8px;
+      padding: 0 4px;
+      border-radius: 4px;
+    }
+
+    .remove-row-btn:hover {
+      background: #fee2e2;
+    }
+
     .settings-modal {
       position: fixed;
       top: 0;
@@ -745,6 +820,25 @@ function App() {
     );
   };
 
+  // Fixed-price line-haul runs have no BOL to extract — the driver just makes
+  // the run. They are entered manually (customer-confirmed workflow).
+  const addLaneRun = () => {
+    const price = customerConfig.contract.fixedLanes[selectedLane];
+    if (!price) return;
+    setShipments((prev) => [
+      ...prev,
+      {
+        pro: selectedLane,
+        laneKey: selectedLane,
+        fixedPrice: price,
+        isFixedLane: true,
+        manualEntry: true,
+        pageNumbers: ['manual'],
+      },
+    ]);
+    setSelectedLane('');
+  };
+
   const processFiles = async () => {
     if (selectedFiles.length === 0) {
       alert('Please select at least one PDF file.');
@@ -823,7 +917,8 @@ function App() {
       const consolidated = consolidateMultiPageBOLs(allResults, customerConfig.consolidation);
       console.log(`📦 Consolidated ${allResults.length} page(s) into ${consolidated.length} shipment(s)`);
 
-      setShipments(consolidated);
+      // New batch replaces extracted shipments but keeps manually entered runs
+      setShipments((prev) => [...consolidated, ...prev.filter((s) => s.manualEntry)]);
 
       if (failedPages.length > 0) {
         const details = failedPages
@@ -958,6 +1053,30 @@ function App() {
             />
             <p>This name will be applied to all BOLs uploaded in this batch</p>
           </div>
+
+          {customerConfig && Object.keys(customerConfig.contract.fixedLanes).length > 0 && (
+            <div className="lane-section">
+              <label htmlFor="laneSelect">Line-haul runs (fixed price)</label>
+              <div className="lane-controls">
+                <select
+                  id="laneSelect"
+                  value={selectedLane}
+                  onChange={(e) => setSelectedLane(e.target.value)}
+                >
+                  <option value="">Select a lane…</option>
+                  {Object.entries(customerConfig.contract.fixedLanes).map(([lane, price]) => (
+                    <option key={lane} value={lane}>
+                      {lane} — ${price.toLocaleString()}
+                    </option>
+                  ))}
+                </select>
+                <button className="add-lane-btn" onClick={addLaneRun} disabled={!selectedLane}>
+                  + Add run
+                </button>
+              </div>
+              <p>These runs have no BOL to scan — add them by hand. The lane price is all-in.</p>
+            </div>
+          )}
 
           <div className="upload-card">
             <div 
@@ -1115,6 +1234,25 @@ function App() {
                   </thead>
                   <tbody>
                     {results.map((result, idx) => (
+                      shipments[idx]?.manualEntry ? (
+                        <tr key={idx}>
+                          <td>
+                            {result.pro}
+                            <button
+                              className="remove-row-btn"
+                              title="Remove this run"
+                              onClick={() => setShipments((prev) => prev.filter((_, i) => i !== idx))}
+                            >
+                              ×
+                            </button>
+                          </td>
+                          <td>{result.driver}</td>
+                          <td>{result.zone}</td>
+                          <td className="manual-note" colSpan={12}>fixed-price line-haul run — all-in</td>
+                          <td></td>
+                          <td><strong>${result.total}</strong></td>
+                        </tr>
+                      ) : (
                       <tr key={idx}>
                         <td>{result.pro}</td>
                         <td>{result.driver}</td>
@@ -1134,6 +1272,7 @@ function App() {
                         <td></td>
                         <td><strong>${result.total}</strong></td>
                       </tr>
+                      )
                     ))}
                   </tbody>
                 </table>

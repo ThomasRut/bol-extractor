@@ -20,10 +20,14 @@ try {
   console.warn('⚠️ settled-invoices fixture not found — settlement regression skipped');
 }
 
-const describeSettled = config && fixture ? describe : describe.skip;
+const describeSettled = fixture?.contractSnapshot ? describe : describe.skip;
 const describeUnit = config ? describe : describe.skip;
 
 describeSettled('calculateCharges reproduces settled Mainfreight invoices', () => {
+  // Historical rows must be priced with the contract AS OF settlement time
+  // (the fixture's snapshot), not the live config — rates legitimately change
+  // (residential went $15 -> $20 in Jul 2026) without invalidating history.
+  const settledConfig = { contract: fixture?.contractSnapshot };
   const opts = { fuelSurchargePercent: fixture?.fuelSurchargePercent ?? 0.24 };
 
   test('fixture is non-trivial', () => {
@@ -32,7 +36,7 @@ describeSettled('calculateCharges reproduces settled Mainfreight invoices', () =
 
   (fixture?.rows ?? []).forEach((row) => {
     test(`${row.job} (${row.sheet}) settles at $${row.paid}`, () => {
-      const result = calculateCharges(row.input, config, opts);
+      const result = calculateCharges(row.input, settledConfig, opts);
       expect(result.total).not.toBe('Quote Required');
       // extrasAdjustment is the sheet's manual Extras column (fees our engine
       // doesn't model, e.g. one-off adjustments) — add it before comparing.
@@ -81,5 +85,20 @@ describeUnit('calculateCharges unit behavior', () => {
 
   test('missing config throws instead of silently pricing wrong', () => {
     expect(() => calculateCharges(base, null)).toThrow(/customer config/);
+  });
+
+  test('manual fixed-lane run prices all-in with no fuel or accessorials', () => {
+    const lanes = Object.entries(config.contract.fixedLanes);
+    if (lanes.length === 0) return; // customer without fixed lanes
+    const [laneKey, price] = lanes[0];
+    const r = calculateCharges(
+      { pro: laneKey, laneKey, fixedPrice: price, isFixedLane: true, manualEntry: true },
+      config,
+      { fuelSurchargePercent: 0.24 } // must be ignored — lane price is all-in
+    );
+    expect(r.total).toBe(price.toFixed(2));
+    expect(r.fuelSurcharge).toBe('0.00');
+    expect(r.extras).toBe('0.00');
+    expect(r.zone).toBe(laneKey);
   });
 });

@@ -19,6 +19,37 @@ export function calculateCharges(data, config, { fuelSurchargePercent, driverNam
   const { priceTable, accessorials, chargeableWeight } = config.contract;
   const fuelPct = fuelSurchargePercent ?? config.contract.fuelSurchargePercent;
 
+  // Manually entered fixed-price line-haul run: the lane price is ALL-IN
+  // (settled invoices show fuel baked in — e.g. $2,000 = $1,612.90 linehaul
+  // + $387.10 fuel), so no surcharge or accessorials apply on top.
+  if (data.isFixedLane && data.fixedPrice) {
+    const price = Number(data.fixedPrice) || 0;
+    return {
+      pro: data.pro || data.laneKey,
+      driver: driverName,
+      zone: data.laneKey || 'LANE',
+      zoneSource: 'MANUAL',
+      lowConfidenceFields: [],
+      stopMarker: '',
+      detentionNote: '',
+      deliveryZip: '',
+      weight: '',
+      volumeFt3: '',
+      chargeable: '',
+      freight: price.toFixed(2),
+      fuelSurcharge: '0.00',
+      debrisRemoval: '0.00',
+      liftgate: '',
+      inside: '',
+      overLength: '',
+      residential: '',
+      timeSpecific: '',
+      detention: 0,
+      extras: '0.00',
+      total: price.toFixed(2)
+    };
+  }
+
   const volume = data.volumeFt3 || data.volume || 0;
   const weight = data.weight || 0;
 

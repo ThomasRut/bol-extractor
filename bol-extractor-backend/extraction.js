@@ -100,13 +100,16 @@ async function processPage(pageBase64, pageNumber, config) {
     // ✅ OPTIMIZATION 1: Prompt Caching - Move extraction rules to system with cache_control
     const message = await anthropic.messages.create({
       // claude-sonnet-4-20250514 retired 2026-06-15 (started returning 404) —
-      // migrated to its designated replacement. Thinking is explicitly disabled:
-      // Sonnet 5 runs adaptive thinking by default when the field is omitted,
-      // which would spend the token budget on reasoning extraction doesn't need.
+      // migrated to its designated replacement. Adaptive thinking at LOW
+      // effort: with thinking disabled the model could not reliably do the
+      // time-window boundary arithmetic (page 3 of the regression scan
+      // flip-flopped REVIEW/AM Special across runs); low-effort thinking
+      // stabilized it for a few hundred tokens per page. max_tokens covers
+      // thinking + output combined.
       model: 'claude-sonnet-5',
-      max_tokens: 2048,
-      thinking: { type: 'disabled' },
-      output_config: { format: { type: 'json_schema', schema: EXTRACTION_SCHEMA } },
+      max_tokens: 4096,
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: EXTRACTION_SCHEMA } },
       system: [
         {
           type: 'text',
@@ -586,39 +589,31 @@ List in "lowConfidenceFields" the name of every output field whose value you wer
       extractedData.lowConfidenceFields = [];
     }
 
-    const { fixedLanes, zipToZone, priceTable, accessorials } = config.contract;
+    const { zipToZone, priceTable, accessorials } = config.contract;
     const validZones = Object.keys(priceTable);
 
-    const pickupState = extractedData.pickupState?.toUpperCase() || '';
-    const deliveryState = extractedData.deliveryState?.toUpperCase() || '';
-    const laneKey = `${pickupState}-${deliveryState}`;
+    // Fixed-price line-haul runs are entered MANUALLY in the UI (customer-
+    // confirmed workflow, 2026-07-03). Auto-detection by pickup/delivery
+    // state pair was removed: any interstate LTL delivery (e.g. a CA-origin
+    // package delivered in GA) matches a lane pair and would false-positive
+    // a $6,000 run. config.contract.fixedLanes now only feeds the manual UI.
+    extractedData.isFixedLane = false;
 
-    if (fixedLanes[laneKey]) {
-      extractedData.isFixedLane = true;
-      extractedData.laneKey = laneKey;
-      extractedData.fixedPrice = fixedLanes[laneKey];
-      console.log(`  🛣️ Fixed price lane: ${laneKey} = $${fixedLanes[laneKey]}`);
-    } else {
-      extractedData.isFixedLane = false;
-    }
+    if (!extractedData.zone || !validZones.includes(extractedData.zone.toUpperCase())) {
+      const zipCode = extractedData.deliveryZip?.replace(/\D/g, '').substring(0, 5);
 
-    if (!extractedData.isFixedLane) {
-      if (!extractedData.zone || !validZones.includes(extractedData.zone.toUpperCase())) {
-        const zipCode = extractedData.deliveryZip?.replace(/\D/g, '').substring(0, 5);
-
-        if (zipCode && zipToZone[zipCode]) {
-          extractedData.zone = zipToZone[zipCode];
-          extractedData.zoneSource = 'ZIP';
-          console.log(`  🗺️ Zone from ZIP ${zipCode}: ${extractedData.zone}`);
-        } else {
-          extractedData.zone = 'QUOTE';
-          extractedData.zoneSource = 'UNKNOWN';
-          console.warn(`  ⚠️ No zone/ZIP match - requires quote`);
-        }
+      if (zipCode && zipToZone[zipCode]) {
+        extractedData.zone = zipToZone[zipCode];
+        extractedData.zoneSource = 'ZIP';
+        console.log(`  🗺️ Zone from ZIP ${zipCode}: ${extractedData.zone}`);
       } else {
-        extractedData.zoneSource = 'BOL';
-        console.log(`  ✓ Zone found on BOL: ${extractedData.zone}`);
+        extractedData.zone = 'QUOTE';
+        extractedData.zoneSource = 'UNKNOWN';
+        console.warn(`  ⚠️ No zone/ZIP match - requires quote`);
       }
+    } else {
+      extractedData.zoneSource = 'BOL';
+      console.log(`  ✓ Zone found on BOL: ${extractedData.zone}`);
     }
 
     // "Lakeshore" generalized: any configured client-name trigger marks the
