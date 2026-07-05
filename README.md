@@ -1,103 +1,79 @@
-# BOL Data Extractor
+# BOL Extractor
 
-An intelligent Bill of Lading (BOL) data extraction tool that uses Claude AI to automatically extract and calculate freight charges from PDF documents.
+Turns scanned freight paperwork (Bills of Lading / delivery receipts) into a
+settlement-ready spreadsheet. Claude vision extracts ~19 fields per page —
+including handwritten annotations like circled "LIFTGATE", time-window marks,
+and driver stop numbers — then a config-driven pricing engine computes the
+charges a biller would calculate by hand, ready to reconcile against the
+carrier's settlement.
 
-## Features
+## How it works
 
-- 📄 Multi-page PDF processing
-- 🤖 AI-powered data extraction using Claude Sonnet 4
-- 💰 Automatic freight cost calculation
-- 📊 Excel-compatible output (copy/paste or CSV download)
-- ⚙️ Adjustable fuel surcharge settings
-- 🎯 Smart detection of:
-  - Liftgate requirements
-  - Inside delivery
-  - Residential delivery
-  - Over-length charges
-  - Time-specific delivery windows
-  - Detention time
-  - Debris removal (Lakeshore special handling)
+```
+PDF upload → split pages → Claude extraction (structured outputs, per-field
+confidence) → multi-page/multi-BOL consolidation → pricing from the customer's
+contract config → review UI (low-confidence highlighting, click-to-correct,
+manual line-haul entry) → copy/CSV into the dispatch spreadsheet
+```
 
-## Project Structure
+- **`bol-extractor-backend/`** — Express server (port 3001). Splits PDFs,
+  calls Claude (warm-then-fan-out concurrency, SDK retries), applies zone /
+  business rules from config, logs review corrections to `data/corrections.jsonl`.
+- **`bol-extractor-frontend/`** — React app (port 3000). Upload, review table
+  with confidence highlighting and inline correction, fixed-lane manual entry,
+  Excel-ready export.
+- **`config/`** — per-customer business rules (rates, zones, accessorials,
+  lanes). Onboarding a customer is a config file, not a code change — see
+  `config/README.md`. Real customer configs are **gitignored**; only the
+  fabricated `_example.json` is committed.
 
-\`\`\`
-bol-extractor-project/
-├── frontend/          # React frontend application
-├── backend/           # Node.js Express API server
-└── README.md         # This file
-\`\`\`
+## Setup
 
-## Setup Instructions
+Prerequisites: Node.js 18+, an Anthropic API key.
 
-### Prerequisites
+```bash
+# Backend
+cd bol-extractor-backend
+npm install
+echo ANTHROPIC_API_KEY=sk-ant-... > .env
+# create config/customers/<id>.json from _example.json, then:
+# (optional) set CUSTOMER_ID=<id> — defaults to the first customer
+node server.js          # http://localhost:3001
 
-- Node.js (v16 or higher)
-- npm or yarn
-- Anthropic API key
+# Frontend
+cd bol-extractor-frontend
+npm install
+npm start               # http://localhost:3000
+```
 
-### Backend Setup
+## Testing
 
-1. Navigate to the backend folder:
-   \`\`\`bash
-   cd backend
-   \`\`\`
+Two regression layers keep prompt/model/rate changes honest:
 
-2. Install dependencies:
-   \`\`\`bash
-   npm install
-   \`\`\`
+| Command | What it does | API cost |
+|---|---|---|
+| `cd bol-extractor-frontend && npm test` | Full suite: consolidation, pricing engine, and a settlement regression that replays real reconciled invoice rows (fixture gitignored; suite skips without it) | none |
+| `cd bol-extractor-backend && npm test` | Diffs cached extractions against hand-verified per-page expected fixtures (gitignored) | none |
+| `cd bol-extractor-backend && npm run test:live` | Re-extracts the sample document via the API, refreshes the cache, then diffs — run after any prompt/model/schema change | ~$0.20 |
 
-3. Create a \`.env\` file:
-   \`\`\`bash
-   ANTHROPIC_API_KEY=your_api_key_here
-   \`\`\`
+Historical settlement fixtures embed a **contract snapshot** of the rates in
+force when their rows settled, so legitimate rate changes never break history.
 
-4. Start the server:
-   \`\`\`bash
-   node server.js
-   \`\`\`
-   Server will run on \`http://localhost:3001\`
+## Key design decisions
 
-### Frontend Setup
-
-1. Navigate to the frontend folder:
-   \`\`\`bash
-   cd frontend
-   \`\`\`
-
-2. Install dependencies:
-   \`\`\`bash
-   npm install
-   \`\`\`
-
-3. Start the development server:
-   \`\`\`bash
-   npm run dev
-   \`\`\`
-   App will run on \`http://localhost:5173\`
-
-## Usage
-
-1. Start both backend and frontend servers
-2. Open the app in your browser
-3. Upload one or more BOL PDF files
-4. Click "Extract & Calculate"
-5. Review results in the table
-6. Copy to clipboard or download as CSV
-
-## Technologies Used
-
-- **Frontend**: React, Vite, Tailwind CSS, Lucide React
-- **Backend**: Node.js, Express, Anthropic Claude API, pdf-lib
-- **AI**: Claude Sonnet 4 (claude-sonnet-4-20250514)
-
-## Price Calculation
-
-The app calculates charges based on:
-- Zone-based freight rates (Zones A-L)
-- Weight tiers (1000+, 2000+, 5000+, 10000+ lbs)
-- Fuel surcharge (adjustable, default 24%)
-- Accessorial charges (liftgate, inside, residential, etc.)
+- **Config-driven rules**: every rate, cap, bracket, zone map, and
+  consolidation behavior lives in the customer config. No hardcoded business
+  logic.
+- **Structured outputs**: extraction responses are schema-guaranteed; enum
+  fields can't drift from the strings pricing switches on.
+- **Human-in-the-loop**: the model self-reports low-confidence fields
+  (highlighted amber), ambiguous time windows surface as red "REVIEW" instead
+  of a guessed charge, and every inline correction is logged for accuracy
+  analysis (`GET /api/corrections/summary`).
+- **Fixed-price line-haul runs are entered manually** — auto-detecting them
+  from BOL state pairs false-positives on interstate LTL deliveries.
+- **Customer data never enters git**: contract configs, extraction fixtures,
+  settlement rows, correction logs, and `.env` are all gitignored.
 
 ## License
 

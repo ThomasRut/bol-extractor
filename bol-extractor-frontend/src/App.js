@@ -8,6 +8,7 @@ function App() {
   const [shipments, setShipments] = useState([]);
   const [editingCell, setEditingCell] = useState(null); // { row, field }
   const [selectedLane, setSelectedLane] = useState('');
+  const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -445,6 +446,12 @@ function App() {
       gap: 6px;
     }
 
+    .copy-btn.copied {
+      background: #10b981;
+      color: white;
+      border-color: #10b981;
+    }
+
     .copy-btn:hover {
       background: #f9fafb;
     }
@@ -699,17 +706,27 @@ function App() {
     }
   `;
 
+  // Server accepts 50MB JSON; base64 inflates PDFs ~33%, so cap files at 30MB
+  // here with a clear message instead of an opaque server error
+  const MAX_FILE_MB = 30;
+  const acceptFiles = (files) => {
+    const ok = files.filter((f) => f.size <= MAX_FILE_MB * 1024 * 1024);
+    if (ok.length < files.length) {
+      const skipped = files.filter((f) => f.size > MAX_FILE_MB * 1024 * 1024).map((f) => f.name);
+      alert(`These files exceed ${MAX_FILE_MB}MB and were skipped:\n${skipped.join('\n')}`);
+    }
+    setSelectedFiles(ok);
+  };
+
   const handleFileSelect = async (e) => {
-    const files = Array.from(e.target.files);
-    setSelectedFiles(files);
+    acceptFiles(Array.from(e.target.files));
     e.target.value = '';
   };
 
   const handleDrop = async (e) => {
     e.preventDefault();
     setDragging(false);
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
-    setSelectedFiles(files);
+    acceptFiles(Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf'));
   };
 
   const handleDragOver = (e) => {
@@ -749,8 +766,33 @@ function App() {
 
   const commitCorrection = (rowIdx, field, rawValue) => {
     const value = NUMERIC_FIELDS.includes(field) ? (parseFloat(rawValue) || 0) : rawValue;
-    // Correction log — this becomes the real accuracy dashboard over time
-    console.log(`✏️ Correction: ${shipments[rowIdx]?.pro} ${field} "${shipments[rowIdx]?.[field]}" -> "${value}"`);
+    const shipment = shipments[rowIdx];
+    const oldValue = shipment?.[field];
+
+    if (String(oldValue ?? '') === String(value)) {
+      setEditingCell(null); // nothing changed — not a correction
+      return;
+    }
+
+    // Persist every correction — over time this shows which fields the model
+    // actually gets wrong (GET /api/corrections/summary)
+    fetch('http://localhost:3001/api/corrections', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pro: shipment?.pro,
+        field,
+        oldValue,
+        newValue: value,
+        wasFlagged:
+          (shipment?.lowConfidenceFields || []).includes(field) ||
+          (field === 'zone' && !['BOL', 'MANUAL'].includes(shipment?.zoneSource)) ||
+          (field === 'timeSpecific' && oldValue === 'REVIEW'),
+        zoneSource: shipment?.zoneSource,
+        filename: shipment?.filename,
+      }),
+    }).catch(() => {}); // logging must never block the correction itself
+
     setShipments((prev) => prev.map((s, i) => {
       if (i !== rowIdx) return s;
       const fixed = { ...s, [field]: value };
@@ -935,17 +977,24 @@ function App() {
     }
   };
 
+  // Quote any field containing commas/quotes/newlines so a value can never
+  // break the row
+  const csvEscape = (v) => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
   const exportToCSV = () => {
     const headers = ['PRO', 'Driver', 'Zone', 'Weight', 'Volume', 'Chargeable', 'Freight', 'Fuel',
                      'Debris R', 'Liftgate', 'Inside', 'Over', 'Residential', 'Time', 'Detention', 'Extras', 'Total'];
-    
+
     const rows = results.map(r => [
       r.pro, r.driver, r.zone, r.weight, r.volumeFt3, r.chargeable,
       r.freight, r.fuelSurcharge, r.debrisRemoval, r.liftgate, r.inside,
       r.overLength, r.residential, r.timeSpecific || '', r.detention, '', r.total
     ]);
 
-    const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
+    const csv = [headers, ...rows].map(row => row.map(csvEscape).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -982,24 +1031,8 @@ function App() {
     const tableText = rows.map(row => row.join('\t')).join('\n');
     
     navigator.clipboard.writeText(tableText).then(() => {
-      const btn = document.querySelector('.copy-btn');
-      const originalText = btn.innerHTML;
-      btn.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <polyline points="20 6 9 17 4 12"/>
-        </svg>
-        Copied!
-      `;
-      btn.style.background = '#10b981';
-      btn.style.color = 'white';
-      btn.style.border = '1px solid #10b981';
-      
-      setTimeout(() => {
-        btn.innerHTML = originalText;
-        btn.style.background = 'white';
-        btn.style.color = '#374151';
-        btn.style.border = '1px solid #e5e7eb';
-      }, 2000);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }).catch(err => {
       alert('Failed to copy to clipboard. Please try again.');
       console.error('Copy error:', err);
@@ -1108,7 +1141,7 @@ function App() {
                 </svg>
                 Select Files
               </button>
-              <p className="file-size-hint">Supports PDF files up to 10MB each</p>
+              <p className="file-size-hint">Supports PDF files up to 30MB each</p>
               <input
                 id="fileInput"
                 type="file"
@@ -1185,12 +1218,18 @@ function App() {
               <div className="results-header">
                 <h3>Extracted Results ({results.length})</h3>
                 <div className="export-buttons">
-                  <button className="copy-btn" onClick={copyToClipboard}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                    </svg>
-                    Copy to Clipboard
+                  <button className={`copy-btn ${copied ? 'copied' : ''}`} onClick={copyToClipboard}>
+                    {copied ? (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                    ) : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                      </svg>
+                    )}
+                    {copied ? 'Copied!' : 'Copy to Clipboard'}
                   </button>
                   <button className="export-btn" onClick={exportToCSV}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

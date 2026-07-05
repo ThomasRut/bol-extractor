@@ -24,9 +24,6 @@ const FIXTURES = path.join(__dirname, 'fixtures');
 const EXPECTED_DIR = path.join(FIXTURES, 'expected');
 const CACHED_DIR = path.join(FIXTURES, 'cached');
 const LIVE = process.argv.includes('--live');
-const DELAY_MS = 1200;
-
-const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function matches(expected, actual) {
   if (expected !== null && typeof expected === 'object') {
@@ -51,7 +48,8 @@ function matches(expected, actual) {
 async function extractLive() {
   const configPath = path.join(FIXTURES, 'config.json');
   const { samplePdf } = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-  const { splitPdfPages, processPage } = require('../extraction');
+  // Same warm-then-fan-out path the server uses, so the harness exercises it
+  const { splitPdfPages, extractAllPages } = require('../extraction');
   const { loadCustomerConfig } = require('../config-loader');
   const customerConfig = loadCustomerConfig();
 
@@ -60,24 +58,20 @@ async function extractLive() {
   const pages = await splitPdfPages(pdfBase64);
   fs.mkdirSync(CACHED_DIR, { recursive: true });
 
-  for (const page of pages) {
-    process.stdout.write(`  page ${page.pageNumber}/${pages.length}... `);
-    try {
-      const result = await processPage(page.base64, page.pageNumber, customerConfig);
-      delete result.data; // raw model text — noisy, not needed for diffing
-      fs.writeFileSync(
-        path.join(CACHED_DIR, `page-${page.pageNumber}.json`),
-        JSON.stringify(result, null, 2)
-      );
-      console.log('ok');
-    } catch (err) {
-      console.log(`FAILED: ${err.message}`);
-      fs.writeFileSync(
-        path.join(CACHED_DIR, `page-${page.pageNumber}.json`),
-        JSON.stringify({ pageNumber: page.pageNumber, __error: err.message }, null, 2)
-      );
+  const results = await extractAllPages(pages, customerConfig, { concurrency: 3 });
+  for (const result of results) {
+    let cached;
+    if (result.success === false) {
+      cached = { pageNumber: result.pageNumber, __error: result.error };
+    } else {
+      // raw model text / loop bookkeeping — not needed for diffing
+      const { data, success, error, ...rest } = result;
+      cached = rest;
     }
-    if (page.pageNumber < pages.length) await delay(DELAY_MS);
+    fs.writeFileSync(
+      path.join(CACHED_DIR, `page-${result.pageNumber}.json`),
+      JSON.stringify(cached, null, 2)
+    );
   }
 }
 

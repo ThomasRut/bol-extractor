@@ -10,6 +10,9 @@ console.log('API key:', process.env.ANTHROPIC_API_KEY ? 'loaded' : 'MISSING');
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
+  // 429/529/5xx are retried with backoff (honors retry-after) instead of
+  // permanently failing the page
+  maxRetries: 4,
 });
 
 // Business rules (fixed lanes, ZIP->zone map, valid zones, debris-client
@@ -633,4 +636,44 @@ List in "lowConfidenceFields" the name of every output field whose value you wer
   }
 }
 
-module.exports = { splitPdfPages, processPage };
+// Extract every page of a document. Page 1 runs alone first: its response
+// writes the prompt cache that the remaining pages read at ~10% of the input
+// price (parallel-from-cold would make every page pay full prompt cost).
+// The rest run with bounded concurrency; the SDK's maxRetries absorbs
+// transient 429/5xx errors.
+async function extractAllPages(pages, config, { concurrency = 3, onPage } = {}) {
+  const results = new Array(pages.length);
+
+  const run = async (page) => {
+    try {
+      console.log(`  ⏳ Processing page ${page.pageNumber}/${pages.length}...`);
+      const result = await processPage(page.base64, page.pageNumber, config);
+      results[page.pageNumber - 1] = { ...result, success: true, error: null };
+      console.log(`  ✅ Page ${page.pageNumber} completed`);
+    } catch (error) {
+      console.error(`  ❌ Page ${page.pageNumber} failed:`, error.message);
+      results[page.pageNumber - 1] = {
+        pageNumber: page.pageNumber,
+        success: false,
+        error: error.message,
+        data: null,
+      };
+    }
+    if (onPage) onPage(results[page.pageNumber - 1]);
+  };
+
+  if (pages.length === 0) return results;
+  await run(pages[0]); // cache warmer
+
+  const queue = pages.slice(1);
+  const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+    while (queue.length) {
+      await run(queue.shift());
+    }
+  });
+  await Promise.all(workers);
+
+  return results;
+}
+
+module.exports = { splitPdfPages, processPage, extractAllPages };
