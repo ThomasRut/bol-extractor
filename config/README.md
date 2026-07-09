@@ -21,6 +21,7 @@ need it).
 | `contract.chargeableWeight.cubicInchDivisor` | Chargeable lbs = (volume ft³ × 1728) / divisor; billed weight = max(actual, chargeable) |
 | `contract.priceTable` | Per-zone freight rates. Keys are zone letters; each zone has weight-tier rates (`"10000+"`, `"5000+"`, `"2000+"`, `"1000+"` — tier thresholds are parsed from the key names) plus `min`/`max` caps. The set of keys defines the valid zones |
 | `contract.accessorials.liftgate.flat` | Flat charge when liftgate service applies |
+| `contract.accessorials.liftgate.minWeightLbs` | Optional. Liftgate marked on the BOL is not billed (and not shown) when actual weight is below this — light freight is hand-carried. Omit to always bill marked liftgates |
 | `contract.accessorials.inside` | `perPound` rate on billed weight, clamped to `min`/`max` |
 | `contract.accessorials.residential.flat` | Flat charge per residential delivery |
 | `contract.accessorials.overLength` | Charge per length bracket (bracket strings must match the extraction schema exactly) |

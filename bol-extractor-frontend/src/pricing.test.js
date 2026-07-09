@@ -83,6 +83,28 @@ describeUnit('calculateCharges unit behavior', () => {
     expect(parseFloat(late.extras)).toBeCloseTo(ts.rates['AM Special'].late, 2);
   });
 
+  test('liftgate below the weight floor is neither billed nor shown', () => {
+    // Customer rule (Robson, 2026-07-08): under 100 lbs the driver hand-carries,
+    // so a liftgate marked on the BOL doesn't count. Verified against POD
+    // 06-24-26 rows 16554103/16558179 (83 lbs, liftgate printed, not settled).
+    const floor = config.contract.accessorials.liftgate.minWeightLbs;
+    const light = calculateCharges({ ...base, weight: floor - 1, liftgate: 'Yes' }, config, noFuel);
+    const heavy = calculateCharges({ ...base, weight: floor, liftgate: 'Yes' }, config, noFuel);
+    expect(light.liftgate).toBe('');
+    expect(parseFloat(heavy.extras) - parseFloat(light.extras))
+      .toBeCloseTo(config.contract.accessorials.liftgate.flat, 2);
+    expect(heavy.liftgate).toBe('Yes');
+  });
+
+  test('configs without minWeightLbs bill marked liftgates at any weight', () => {
+    // Historical contractSnapshots predate the rule — they must keep billing.
+    const legacy = JSON.parse(JSON.stringify(config));
+    delete legacy.contract.accessorials.liftgate.minWeightLbs;
+    const r = calculateCharges({ ...base, weight: 1, liftgate: 'Yes' }, legacy, noFuel);
+    expect(r.liftgate).toBe('Yes');
+    expect(parseFloat(r.extras)).toBeCloseTo(legacy.contract.accessorials.liftgate.flat, 2);
+  });
+
   test('missing config throws instead of silently pricing wrong', () => {
     expect(() => calculateCharges(base, null)).toThrow(/customer config/);
   });

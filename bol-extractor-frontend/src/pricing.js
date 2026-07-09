@@ -104,7 +104,13 @@ export function calculateCharges(data, config, { fuelSurchargePercent, driverNam
     ? (data.palletCount || 0) * accessorials.debrisRemoval.perPallet
     : 0;
 
-  const liftgateCharge = data.liftgate === 'Yes' ? accessorials.liftgate.flat : 0;
+  // Liftgate marked on the BOL is neither billed nor shown below the
+  // customer's weight floor (actual weight, not chargeable) — light freight
+  // gets hand-carried. Configs without minWeightLbs always bill it.
+  const lg = accessorials.liftgate;
+  const liftgateApplies = data.liftgate === 'Yes' &&
+    (lg.minWeightLbs == null || weight >= lg.minWeightLbs);
+  const liftgateCharge = liftgateApplies ? lg.flat : 0;
 
   const insideCharge = data.inside === 'Yes'
     ? Math.max(
@@ -146,7 +152,7 @@ export function calculateCharges(data, config, { fuelSurchargePercent, driverNam
     freight: freight.toFixed(2),
     fuelSurcharge: fuelSurcharge.toFixed(2),
     debrisRemoval: debrisRemoval.toFixed(2),
-    liftgate: data.liftgate === 'Yes' ? 'Yes' : '',
+    liftgate: liftgateApplies ? 'Yes' : '',
     inside: data.inside === 'Yes' ? 'Yes' : '',
     overLength: data.overLength || '',
     residential: data.residential === 'Yes' ? 'Yes' : '',
