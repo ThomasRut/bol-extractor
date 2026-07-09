@@ -104,6 +104,33 @@ describe('consolidateMultiPageBOLs', () => {
     expect(out[0].pageNumbers).toEqual([1, 2]);
   });
 
+  // Real-world case (WhatsApp scan 2026-06-25): the same physical BOL scanned
+  // twice — identical PRO, totals, and address. Summing a rescan double-bills.
+  test('rescanned duplicate pages count once, not twice', () => {
+    const out = consolidateMultiPageBOLs([
+      page({ pro: 'WEBATL900001', weight: 1031, volumeFt3: 145.92, palletCount: 3, liftgate: 'Yes' }),
+      page({ pageNumber: 2, pro: 'WEBATL900001', weight: 1031, volumeFt3: 145.92, palletCount: 3, liftgate: 'Yes' }),
+    ]);
+
+    expect(out).toHaveLength(1);
+    expect(out[0].weight).toBe(1031);
+    expect(out[0].volumeFt3).toBeCloseTo(145.92);
+    expect(out[0].palletCount).toBe(3);
+    expect(out[0].duplicatePageNumbers).toEqual([2]);
+    expect(out[0].pageNumbers).toEqual([1, 2]); // provenance keeps both pages
+  });
+
+  test('same-PRO pages with different totals are continuations and still sum', () => {
+    const out = consolidateMultiPageBOLs([
+      page({ pro: 'WEBATL900001', weight: 500 }),
+      page({ pageNumber: 2, pro: 'WEBATL900001', weight: 300 }),
+    ]);
+
+    expect(out).toHaveLength(1);
+    expect(out[0].weight).toBe(800);
+    expect(out[0].duplicatePageNumbers).toEqual([]);
+  });
+
   // Customer-confirmed: one stop receiving several BOLs (driver marks like
   // "4-A"/"4-B") settles as ONE job — combined weight/volume, one liftgate.
   test('different PROs at the same address in the same file merge as one stop', () => {

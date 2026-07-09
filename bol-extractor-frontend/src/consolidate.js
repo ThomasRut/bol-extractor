@@ -123,8 +123,32 @@ function maxOverLength(pages) {
   return best === -1 ? '' : OVER_LENGTH_RANGES[best];
 }
 
+// A rescanned page — same raw PRO with identical totals and address — must
+// count ONCE: summing a rescan double-bills the shipment. Real continuation
+// pages differ (suffixed PRO or partial weights), so they still sum. Pages
+// without a PRO are never treated as rescans.
+function dropRescans(pages) {
+  const seen = new Set();
+  const kept = [];
+  const duplicatePageNumbers = [];
+  for (const p of pages) {
+    const rawPro = String(p.pro || '').toUpperCase().trim();
+    const key = rawPro && [
+      rawPro, toNumber(p.weight), toNumber(p.volumeFt3),
+      toNumber(p.palletCount), normalizeAddress(p.deliveryAddress),
+    ].join('|');
+    if (key && seen.has(key)) {
+      duplicatePageNumbers.push(p.pageNumber);
+      continue;
+    }
+    if (key) seen.add(key);
+    kept.push(p);
+  }
+  return { kept, duplicatePageNumbers };
+}
+
 function mergePages(group) {
-  const pages = group.pages;
+  const { kept: pages, duplicatePageNumbers } = dropRescans(group.pages);
   const first = pages[0];
   const proBases = [...group.proBases];
 
@@ -136,7 +160,8 @@ function mergePages(group) {
     // A multi-BOL stop shows every PRO it settles ("PROA + PROB")
     pro: proBases.length ? proBases.join(' + ') : firstNonEmpty(pages, 'pro'),
     originalPros: pages.map((p) => p.pro || ''),
-    pageNumbers: pages.map((p) => p.pageNumber),
+    pageNumbers: group.pages.map((p) => p.pageNumber),
+    duplicatePageNumbers,
     isMultiPage: true,
     isMultiDocStop: proBases.length > 1,
     pages,
@@ -235,6 +260,7 @@ export function consolidateMultiPageBOLs(pageResults, { mergeSameStopMultiBol = 
           isMultiPage: false,
           isMultiDocStop: false,
           pageNumbers: [group.pages[0].pageNumber],
+          duplicatePageNumbers: [],
           pages: group.pages,
         }
       : mergePages(group)
